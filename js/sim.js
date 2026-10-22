@@ -1,13 +1,12 @@
 // The factory running itself: ore drops, items ride belts, mixers combine them
 // and depots get their orders. Pure logic, driven by `tick(dt)` in seconds.
-import { TUNE, findRecipe } from './config.js';
+import { TUNE, findRecipe, creditsFor } from './config.js';
 import { KIND, freeSpot, nextArrival } from './world.js';
-
-const capOf = (b) => (b.kind === KIND.MIXER ? TUNE.mixerCap : b.kind === KIND.DEPOT ? TUNE.depotCap : TUNE.depositCap);
 
 export class Sim {
   constructor(world, hooks = {}) {
     this.world = world;
+    this.capOf = (b) => world.caps[b.kind];
     this.hooks = hooks;
     this.time = 0;
     this.score = 0;
@@ -43,6 +42,7 @@ export class Sim {
     for (const b of this.world.buildings) {
       if (b.kind === KIND.DEPOSIT) this.tickDeposit(b, dt, out.get(b.id));
       else if (b.kind === KIND.MIXER) this.tickMixer(b, dt, out.get(b.id));
+      else if (b.kind === KIND.SPLITTER) this.dispatch(b, out.get(b.id));
       else this.tickDepot(b, dt);
     }
     this.tickSpawn(dt);
@@ -80,14 +80,16 @@ export class Sim {
 
   deliver(b, color) {
     if (b.kind === KIND.DEPOT && color === b.color) {
+      const paid = creditsFor(color);
       this.score++;
       this.delivered++;
+      this.world.stock.credits += paid;
       b.pending = Math.max(0, b.pending - 1);
       b.flash = this.time;
-      this.hooks.onDeliver?.(b, color, this.delivered);
+      this.hooks.onDeliver?.(b, color, this.delivered, paid);
       return true;
     }
-    if (b.buffer.length >= capOf(b)) return false;
+    if (b.buffer.length >= this.capOf(b)) return false;
     b.buffer.push(color);
     b.flash = this.time;
     return true;
@@ -99,7 +101,7 @@ export class Sim {
     b.cool -= dt;
     if (b.cool <= 0) {
       b.cool += TUNE.oreInterval;
-      if (b.buffer.length < capOf(b)) b.buffer.push(b.color);
+      if (b.buffer.length < this.capOf(b)) b.buffer.push(b.color);
     }
     this.dispatch(b, belts);
   }
@@ -136,7 +138,7 @@ export class Sim {
 
     // A full buffer is only a problem when nothing in it will react: that is
     // one colour flooding in with no partner, and it will never clear itself.
-    const choked = b.buffer.length >= capOf(b) && !findRecipe(b.buffer);
+    const choked = b.buffer.length >= this.capOf(b) && !findRecipe(b.buffer);
     this.fuse(b, choked, dt);
   }
 
@@ -147,17 +149,18 @@ export class Sim {
       b.pending = Math.min(TUNE.demandCap, b.pending + 1);
     }
     // Only the wrong colour can pile up here, since orders are consumed on sight.
-    this.fuse(b, b.buffer.length >= capOf(b), dt);
+    this.fuse(b, b.buffer.length >= this.capOf(b), dt);
   }
 
   // Shared overflow timer: machines sound an alarm, then burn out.
   fuse(b, choked, dt) {
     const was = b.jam;
-    if (choked) b.jam = Math.min(TUNE.jamFuse, b.jam + dt);
+    const fuse = this.world.jamFuse;
+    if (choked) b.jam = Math.min(fuse, b.jam + dt);
     else b.jam = Math.max(0, b.jam - dt * 2.5);
     if (!was && b.jam > 0) this.hooks.onJam?.(b);
     if (was > 0 && b.jam === 0) this.hooks.onCalm?.(b);
-    if (b.jam >= TUNE.jamFuse && !this.relaxed) {
+    if (b.jam >= fuse && !this.relaxed) {
       this.over = true;
       this.hooks.onFail?.(b);
     }
@@ -197,6 +200,7 @@ export class Sim {
     const spot = freeSpot(this.world, this.world.rng);
     if (!spot) return;
     const plan = nextArrival(this.world, this.world.rng);
+    if (!plan) return;
     const b = this.world.addBuilding(plan.kind, spot.x, spot.y, plan.color ? { color: plan.color } : {});
     b.born = this.time;
     this.hooks.onSpawn?.(b);

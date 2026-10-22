@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mix, findRecipe, TUNE } from '../js/config.js';
-import { World, KIND, seedWorld, createDraft, draftTo, commitDraft, draftCost, makeableColors } from '../js/world.js';
+import { mix, findRecipe, TUNE, GOODS, TECHS, techCost, creditsFor } from '../js/config.js';
+import { World, KIND, seedWorld, createDraft, draftTo, commitDraft, draftCost, makeableColors, canPlaceAt } from '../js/world.js';
 import { Sim } from '../js/sim.js';
 
 const connect = (world, from, to) => {
@@ -243,4 +243,114 @@ test('items keep their spacing and ride the belt in order', () => {
       assert.ok(gap >= TUNE.itemGap - 1e-6, `items overlapped (gap ${gap.toFixed(3)})`);
     }
   }
+});
+
+test('a delivery pays by how deep the colour is', () => {
+  assert.equal(creditsFor('blue'), 1);
+  assert.equal(creditsFor('green'), 2);
+  assert.equal(creditsFor('slate'), 4);
+
+  const world = seedWorld(new World(3));
+  const mixer = find(world, KIND.MIXER);
+  connect(world, find(world, KIND.DEPOSIT, 'blue'), mixer);
+  connect(world, find(world, KIND.DEPOSIT, 'yellow'), mixer);
+  connect(world, mixer, find(world, KIND.DEPOT));
+  const sim = new Sim(world);
+  const purse = world.stock.credits;
+  for (let i = 0; i < 60 * 30; i++) sim.tick(1 / 60);
+  assert.ok(sim.score > 0);
+  assert.equal(world.stock.credits, purse + sim.score * 2, 'every Fern paid two');
+});
+
+test('a splitter feeds its outgoing belts in turn', () => {
+  const world = new World(4);
+  world.stock.belts = 400;
+  const ore = world.addBuilding(KIND.DEPOSIT, 2, 7, { color: 'blue' });
+  const split = world.addBuilding(KIND.SPLITTER, 8, 7);
+  const left = world.addBuilding(KIND.MIXER, 14, 3);
+  const right = world.addBuilding(KIND.MIXER, 14, 11);
+  connect(world, ore, split);
+  const a = connect(world, split, left);
+  const b = connect(world, split, right);
+  assert.ok(a && b, 'a splitter both receives and sends');
+
+  const sim = new Sim(world);
+  for (let i = 0; i < 60 * 60; i++) sim.tick(1 / 60);
+  const served = left.buffer.length + right.buffer.length + a.items.length + b.items.length;
+  assert.ok(served >= 4, `expected the splitter to pass items on, saw ${served}`);
+  assert.ok(Math.abs(a.items.length + left.buffer.length - (b.items.length + right.buffer.length)) <= 1, 'the two outputs stay level');
+});
+
+test('ore deposits still only send, and shops only receive', () => {
+  const world = new World(5);
+  const ore = world.addBuilding(KIND.DEPOSIT, 2, 2, { color: 'red' });
+  const shop = world.addBuilding(KIND.DEPOT, 10, 2, { color: 'red' });
+  const split = world.addBuilding(KIND.SPLITTER, 6, 6);
+  const toOre = createDraft(world, split);
+  draftTo(world, toOre, ore);
+  assert.equal(toOre.end, null);
+  assert.equal(toOre.blocked, 'kind');
+  const fromShop = createDraft(world, shop);
+  draftTo(world, fromShop, split);
+  assert.equal(fromShop.end, null, 'a shop is the end of the line');
+});
+
+test('a bought machine needs empty floor with a cell of air around it', () => {
+  const world = seedWorld(new World(8));
+  const mixer = find(world, KIND.MIXER);
+  assert.equal(canPlaceAt(world, mixer.x, mixer.y), false, 'not on top of a building');
+  assert.equal(canPlaceAt(world, mixer.x + 1, mixer.y), false, 'not touching one either');
+  assert.equal(canPlaceAt(world, -1, 3), false, 'not off the floor');
+
+  const spot = { x: mixer.x, y: mixer.y + 3 };
+  assert.equal(canPlaceAt(world, spot.x, spot.y), true);
+  const belt = connect(world, find(world, KIND.DEPOSIT, 'blue'), mixer);
+  const onBelt = belt.cells[2];
+  assert.equal(canPlaceAt(world, onBelt.x, onBelt.y), false, 'not on a running belt');
+});
+
+test('research is priced per level and actually changes the floor', () => {
+  const world = seedWorld(new World(2));
+  const express = TECHS.find((t) => t.id === 'express');
+  assert.equal(techCost(express, 0), express.cost);
+  assert.equal(techCost(express, 1), express.cost + express.step);
+
+  const speed = world.speed;
+  express.apply(world);
+  assert.ok(world.speed > speed, 'express belts move the line faster');
+
+  const cap = world.caps.mixer;
+  TECHS.find((t) => t.id === 'buffers').apply(world);
+  assert.equal(world.caps.mixer, cap + 2);
+
+  const fuse = world.jamFuse;
+  TECHS.find((t) => t.id === 'reinforced').apply(world);
+  assert.ok(world.jamFuse > fuse);
+
+  assert.equal(world.unlocked.splitter, false);
+  TECHS.find((t) => t.id === 'splitter').apply(world);
+  assert.equal(world.unlocked.splitter, true);
+  assert.equal(GOODS.splitter.needs, 'splitter', 'the store keeps the splitter behind that tech');
+});
+
+test('wider buffers really do delay an overflow', () => {
+  const run = (wide) => {
+    const world = seedWorld(new World(3));
+    if (wide) TECHS.find((t) => t.id === 'buffers').apply(world);
+    connect(world, find(world, KIND.DEPOSIT, 'blue'), find(world, KIND.MIXER));
+    const sim = new Sim(world);
+    for (let i = 0; i < 60 * 200 && !sim.over; i++) sim.tick(1 / 60);
+    return sim.time;
+  };
+  assert.ok(run(true) > run(false), 'eight slots last longer than six');
+});
+
+test('only shops arrive on their own now', () => {
+  const world = seedWorld(new World(14));
+  const sim = new Sim(world);
+  const before = world.buildings.length;
+  for (let i = 0; i < 60 * 400; i++) sim.tick(1 / 60);
+  assert.ok(world.buildings.length > before, 'the town grew');
+  const arrived = world.buildings.slice(before);
+  assert.ok(arrived.every((b) => b.kind === KIND.DEPOT), 'machines are bought, not gifted');
 });

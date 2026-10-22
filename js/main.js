@@ -1,6 +1,6 @@
 // Screens, upgrades and the frame loop that ties the factory together.
-import { COLORS, TUNE, FACTORY_NAMES, PRIMARIES } from './config.js';
-import { World, KIND, seedWorld, freeSpot, makeableColors, createDraft, draftTo, commitDraft } from './world.js';
+import { COLORS, TUNE, FACTORY_NAMES, PRIMARIES, GOODS, TECHS, techCost } from './config.js';
+import { World, KIND, seedWorld, canPlaceAt, makeableColors, createDraft, draftTo, commitDraft } from './world.js';
 import { Sim } from './sim.js';
 import { Renderer } from './render.js';
 import { Controls } from './input.js';
@@ -45,13 +45,14 @@ function at(b) {
 }
 
 const hooks = {
-  onDeliver(b, color, total) {
+  onDeliver(b, color, total, paid) {
     const p = at(b);
     burst(p.x, p.y, color, 10);
-    floater(p.x, p.y - 10, '+1', COLORS[color].deep);
+    floater(p.x, p.y - 10, `+${paid}`, COLORS[color].deep);
     sfx.deliver();
     bumpScore();
-    if (total % TUNE.rewardEvery === 0) setTimeout(offerReward, 420);
+    showStock();
+    if (total % 10 === 0) confetti(24);
     advanceCoach();
   },
   onCraft(b, color) {
@@ -75,8 +76,6 @@ const hooks = {
     ring(p.x, p.y, b.color ?? 'slate');
     sfx.arrive();
     if (b.kind === KIND.DEPOT) toast(`New shop wants ${COLORS[b.color].name}`, { color: COLORS[b.color].fill, icon: true });
-    else if (b.kind === KIND.MIXER) toast('A new mixer opened', { color: '#3f4654', icon: true });
-    else toast(`${COLORS[b.color].name} deposit found`, { color: COLORS[b.color].fill, icon: true });
   },
   onFail(b) {
     sfx.fail();
@@ -87,7 +86,7 @@ const hooks = {
   },
 };
 
-const label = (b) => (b.kind === KIND.MIXER ? 'A mixer' : b.kind === KIND.DEPOT ? `The ${COLORS[b.color].name} shop` : 'A deposit');
+const label = (b) => (b.kind === KIND.MIXER ? 'A mixer' : b.kind === KIND.DEPOT ? `The ${COLORS[b.color].name} shop` : b.kind === KIND.SPLITTER ? 'A splitter' : 'A deposit');
 
 // ---- boot and restart ----
 
@@ -115,6 +114,7 @@ function boot(seed = (Math.random() * 1e9) | 0) {
     controls.setWorld(world);
   }
   controls.locked = false;
+  stopPlacing();
   coachStep = -1;
   speedStep = 1;
   showSpeed();
@@ -140,6 +140,7 @@ const controlHooks = {
   onDraft() {
     showStock();
   },
+  onPlace: (cell) => placeAt(cell),
   onTap(target) {
     if (target.kind) return tapBuilding(target);
     // Pulling a belt up refunds its tiles and bridges.
@@ -159,6 +160,8 @@ function tapBuilding(b) {
     toast(`Wants ${COLORS[b.color].name} (${parts})`, { color: COLORS[b.color].fill, icon: true });
   } else if (b.kind === KIND.MIXER) {
     toast(b.buffer.length ? `Holding ${b.buffer.map((c) => COLORS[c].name).join(', ')}` : 'Mixer is empty — feed it two colours', { color: '#3f4654', icon: true });
+  } else if (b.kind === KIND.SPLITTER) {
+    toast('Splitter — it feeds its outgoing belts in turn', { color: '#3f4654', icon: true });
   } else {
     toast(`${COLORS[b.color].name} ore, one every ${TUNE.oreInterval}s`, { color: COLORS[b.color].fill, icon: true });
   }
@@ -176,6 +179,9 @@ function showStock() {
   $('bridge-count').textContent = bridges;
   $('pill-belts').classList.toggle('low', belts <= 6);
   $('pill-bridges').classList.toggle('low', bridges === 0);
+  $('credit-count').textContent = world.stock.credits;
+  $('store-credits').textContent = world.stock.credits;
+  $('tech-credits').textContent = world.stock.credits;
 }
 
 function showScore() {
@@ -228,96 +234,158 @@ function advanceCoach() {
   showCoach(lines[step], step === 3 ? 4200 : 0);
 }
 
-// ---- upgrades ----
+// ---- store, research and placing what you buy ----
 
-const UPGRADES = [
-  {
-    id: 'belts',
-    weight: 3,
-    icon: '#i-belt',
-    title: '+18 belt tiles',
-    text: 'More line to lay across the floor.',
-    apply: () => (world.stock.belts += 18),
-  },
-  {
-    id: 'bridge',
-    weight: 2,
-    icon: '#i-bridge',
-    title: '+1 bridge',
-    text: 'Lets one belt hop straight over another.',
-    apply: () => (world.stock.bridges += 1),
-  },
-  {
-    id: 'mixer',
-    weight: 2,
-    icon: '#i-fast',
-    title: 'Another mixer',
-    text: 'A second place to combine colours.',
-    when: () => world.buildings.length < world.maxBuildings,
-    apply: () => place(KIND.MIXER),
-  },
-  {
-    id: 'speed',
-    weight: 1,
-    icon: '#i-play',
-    title: 'Faster belts',
-    text: 'Everything on the line moves 15% quicker.',
-    when: () => world.speed < TUNE.beltSpeed * 2,
-    apply: () => (world.speed *= 1.15),
-  },
-  {
-    id: 'deposit',
-    weight: 2,
-    icon: '#i-restart',
-    title: 'New ore deposit',
-    text: 'A fresh source of a primary colour.',
-    when: () => world.buildings.length < world.maxBuildings,
-    apply: () => {
-      const have = world.buildings.filter((b) => b.kind === KIND.DEPOSIT).map((b) => b.color);
-      const missing = PRIMARIES.filter((p) => !have.includes(p));
-      place(KIND.DEPOSIT, (missing.length ? world.rng.pick(missing) : world.rng.pick(PRIMARIES)));
-    },
-  },
-];
-
-function place(kind, color) {
-  const spot = freeSpot(world, world.rng);
-  if (!spot) return;
-  const b = world.addBuilding(kind, spot.x, spot.y, color ? { color } : {});
-  b.born = sim.time;
-  hooks.onSpawn(b);
+function afford(cost) {
+  return world.stock.credits >= cost;
 }
 
-function offerReward() {
-  if (sim.over) return;
-  const pool = UPGRADES.filter((u) => !u.when || u.when());
-  const picks = [];
-  const bag = pool.flatMap((u) => Array(u.weight).fill(u));
-  while (picks.length < 2 && bag.length) {
-    const u = bag[world.rng.int(bag.length)];
-    if (!picks.includes(u)) picks.push(u);
-    if (picks.length === new Set(bag).size) break;
+function spend(cost) {
+  world.stock.credits -= cost;
+  showStock();
+}
+
+function row(icon, title, text, cost, { owned = false, locked = false, tag = '' } = {}) {
+  const btn = document.createElement('button');
+  const can = !locked && !owned && afford(cost);
+  btn.className = `choice${owned ? ' owned' : ''}${locked || (!can && !owned) ? ' locked' : ''}`;
+  btn.disabled = !can;
+  btn.innerHTML =
+    `<span class="badge"><svg class="icon"><use href="${icon}"></use></svg></span>` +
+    `<span class="choice-text"><h3>${title}${tag ? ` <i class="tag">${tag}</i>` : ''}</h3><p>${text}</p></span>` +
+    `<span class="price">${owned ? 'owned' : locked ? 'locked' : cost}</span>`;
+  return btn;
+}
+
+function renderStore() {
+  const list = $('store-list');
+  list.innerHTML = '';
+  for (const [id, good] of Object.entries(GOODS)) {
+    const locked = Boolean(good.needs) && !world.unlocked[good.needs];
+    const note = locked ? 'Research it first, over in the lab.' : good.note;
+    if (id === 'deposit') {
+      list.append(oreRow(good));
+      continue;
+    }
+    const btn = row(good.icon, good.label, note, good.cost, { locked });
+    btn.addEventListener('click', () => buy(id, good));
+    list.append(btn);
   }
-  const box = $('choices');
-  box.innerHTML = '';
-  for (const u of picks) {
-    const btn = document.createElement('button');
-    btn.className = 'choice';
-    btn.innerHTML = `<span class="badge"><svg class="icon"><use href="${u.icon}"></use></svg></span><span><h3>${u.title}</h3><p>${u.text}</p></span>`;
-    btn.addEventListener('click', () => {
-      u.apply();
-      showStock();
-      sfx.reward();
-      confetti(40);
-      closePopup('reward');
-      resume();
-    });
-    box.append(btn);
-  }
-  $('reward-title').textContent = `${sim.delivered} orders delivered`;
-  sfx.reward();
+}
+
+function openStore() {
+  renderStore();
+  sfx.click();
   pause();
-  openPopup('reward');
+  openPopup('store');
+}
+
+// Ore comes in three flavours, so it gets one row with three buttons.
+function oreRow(good) {
+  const wrap = document.createElement('div');
+  wrap.className = 'ore-row';
+  wrap.innerHTML = `<p class="ore-label">${good.label} <span class="price">${good.cost}</span></p>`;
+  const buttons = document.createElement('div');
+  buttons.className = 'ore-buttons';
+  for (const color of PRIMARIES) {
+    const btn = document.createElement('button');
+    btn.className = 'ore-pick';
+    btn.disabled = !afford(good.cost);
+    btn.style.setProperty('--ore', COLORS[color].fill);
+    btn.innerHTML = `<i></i><span>${COLORS[color].name}</span>`;
+    btn.addEventListener('click', () => buy('deposit', good, color));
+    buttons.append(btn);
+  }
+  wrap.append(buttons);
+  return wrap;
+}
+
+function buy(id, good, color) {
+  if (!afford(good.cost)) return sfx.nope();
+  if (good.place) {
+    // Pay on the drop, not on the click, so a cancelled placement costs nothing.
+    closePopup('store').then(() => startPlacing({ kind: good.place, color }, good.cost));
+    return;
+  }
+  spend(good.cost);
+  if (id === 'belts') world.stock.belts += good.amount;
+  if (id === 'bridge') world.stock.bridges += good.amount;
+  sfx.reward();
+  toast(`${good.label} bought`, { color: '#3f4654', icon: true });
+  renderStore();
+}
+
+function renderTech() {
+  const list = $('tech-list');
+  list.innerHTML = '';
+  for (const tech of TECHS) {
+    const level = world.techs[tech.id] ?? 0;
+    const max = tech.levels ?? 1;
+    const owned = level >= max;
+    const cost = techCost(tech, level);
+    const tag = max > 1 ? `${level}/${max}` : '';
+    const btn = row(tech.icon, tech.name, tech.text, cost, { owned, tag });
+    btn.addEventListener('click', () => {
+      if (!afford(cost)) return sfx.nope();
+      spend(cost);
+      world.techs[tech.id] = level + 1;
+      tech.apply(world);
+      sfx.reward();
+      confetti(34);
+      toast(`${tech.name} researched`, { color: '#ef7f9c', icon: true });
+      renderTech();
+    });
+    list.append(btn);
+  }
+}
+
+function openTech() {
+  renderTech();
+  sfx.click();
+  pause();
+  openPopup('tech');
+}
+
+let placing = null;
+const PLACE_NAMES = { mixer: 'mixer', splitter: 'splitter', deposit: 'deposit' };
+
+function startPlacing(what, cost) {
+  placing = { ...what, cost };
+  controls.setPlacing(placing);
+  const name = what.color ? `${COLORS[what.color].name} ${PLACE_NAMES[what.kind]}` : PLACE_NAMES[what.kind];
+  $('placing-text').textContent = `Tap an empty spot for your ${name}`;
+  $('placing-bar').hidden = false;
+  $('coach').hidden = true;
+  resume();
+}
+
+function stopPlacing() {
+  placing = null;
+  controls.setPlacing(null);
+  $('placing-bar').hidden = true;
+}
+
+function placeAt(cell) {
+  if (!placing) return;
+  if (!canPlaceAt(world, cell.x, cell.y)) {
+    sfx.nope();
+    showCoach('Not enough room there — machines need a cell of air', 1600);
+    return;
+  }
+  if (!afford(placing.cost)) {
+    sfx.nope();
+    stopPlacing();
+    return;
+  }
+  spend(placing.cost);
+  const b = world.addBuilding(placing.kind, cell.x, cell.y, placing.color ? { color: placing.color } : {});
+  b.born = sim.time;
+  const p = at(b);
+  ring(p.x, p.y, placing.color ?? 'slate');
+  burst(p.x, p.y, placing.color ?? 'slate', 8);
+  sfx.lay();
+  stopPlacing();
+  advanceCoach();
 }
 
 // ---- game over ----
@@ -421,6 +489,13 @@ $('btn-again').addEventListener('click', async () => {
   resume();
 });
 
+$('btn-store').addEventListener('click', openStore);
+$('btn-tech').addEventListener('click', openTech);
+$('btn-cancel-place').addEventListener('click', () => {
+  sfx.click();
+  stopPlacing();
+});
+
 $('btn-speed').addEventListener('click', () => {
   speedStep = (speedStep + 1) % SPEEDS.length;
   showSpeed();
@@ -437,7 +512,14 @@ $('btn-sound').addEventListener('click', () => {
 });
 
 addEventListener('keydown', (e) => {
-  if (e.key === ' ') {
+  if (e.key === 'Escape' && placing) {
+    stopPlacing();
+    sfx.back?.();
+  } else if (e.key === 'b') {
+    openStore();
+  } else if (e.key === 't') {
+    openTech();
+  } else if (e.key === ' ') {
     e.preventDefault();
     speedStep = speedStep === 0 ? 1 : 0;
     showSpeed();
@@ -457,7 +539,18 @@ function frame(now) {
   const raw = (now - last) / 1000;
   last = now;
   if (running) sim.tick(Math.min(0.05, raw) * SPEEDS[speedStep]);
-  renderer.draw(sim, { draft: controls.draft, hover: controls.hover }, now / 1000);
+  const cell = controls.cell;
+  renderer.draw(
+    sim,
+    {
+      draft: controls.draft,
+      hover: controls.hover,
+      placing,
+      cell,
+      canPlace: Boolean(placing && cell && canPlaceAt(world, cell.x, cell.y)),
+    },
+    now / 1000
+  );
   showScore();
   requestAnimationFrame(frame);
 }

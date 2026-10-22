@@ -56,15 +56,74 @@ export const TUNE = {
   oreInterval: 2.7, // seconds between ore drops
   demandInterval: 8.5, // seconds between new orders at a depot
   demandCap: 4,
+  splitterCap: 4,
   jamFuse: 15, // seconds an overflowing machine survives
   ventCost: 5, // score paid to dump a jammed buffer
-  startBelts: 58,
+  startBelts: 46,
   startBridges: 2,
-  rewardEvery: 6, // deliveries between upgrade picks
+  startCredits: 6,
   firstSpawn: 22, // seconds before the second wave of buildings
   spawnDecay: 0.94,
   minSpawn: 11,
   maxBuildings: 20,
 };
+
+// Deeper colours take more of the floor to make, so they pay more.
+export const CREDITS = { 1: 1, 2: 2, 3: 4 };
+
+export function creditsFor(color) {
+  return CREDITS[COLORS[color].parts.length] ?? 1;
+}
+
+// The store. `amount` items are stock top-ups; the rest are placed by hand.
+export const GOODS = {
+  belts: { label: '10 belt tiles', note: 'More line to lay across the floor.', icon: '#i-belt', cost: 4, amount: 10 },
+  bridge: { label: 'Bridge', note: 'Carries one belt straight over another.', icon: '#i-bridge', cost: 7, amount: 1 },
+  mixer: { label: 'Mixer', note: 'Combines two different colours into a third.', icon: '#i-mixer', cost: 14, place: 'mixer' },
+  splitter: { label: 'Splitter', note: 'One belt in, two out, taking turns.', icon: '#i-splitter', cost: 10, place: 'splitter', needs: 'splitter' },
+  deposit: { label: 'Ore deposit', note: 'A fresh source of one primary colour.', icon: '#i-ore', cost: 12, place: 'deposit' },
+};
+
+// Research. `levels` lets a tech be bought more than once, each time dearer.
+export const TECHS = [
+  {
+    id: 'splitter',
+    name: 'Splitters',
+    cost: 18,
+    icon: '#i-splitter',
+    text: 'Unlocks the splitter in the store, so one deposit can feed two machines.',
+    apply: (world) => (world.unlocked.splitter = true),
+  },
+  {
+    id: 'express',
+    name: 'Express belts',
+    cost: 15,
+    step: 11,
+    levels: 2,
+    icon: '#i-belt-fast',
+    text: 'Everything on the line moves 20% quicker.',
+    apply: (world) => (world.speed *= 1.2),
+  },
+  {
+    id: 'buffers',
+    name: 'Wider buffers',
+    cost: 22,
+    icon: '#i-mixer',
+    text: 'Mixers hold eight items instead of six before they overflow.',
+    apply: (world) => (world.caps.mixer += 2),
+  },
+  {
+    id: 'reinforced',
+    name: 'Reinforced machines',
+    cost: 24,
+    icon: '#i-shield',
+    text: 'An overflowing machine holds on half as long again before it burns out.',
+    apply: (world) => (world.jamFuse *= 1.5),
+  },
+];
+
+export function techCost(tech, level) {
+  return tech.cost + (tech.step ?? 0) * level;
+}
 
 export const FACTORY_NAMES = ['Prism Works', 'Hue Foundry', 'Pigment Bay', 'Chroma Falls', 'Tint Harbour', 'Spectra Mill'];

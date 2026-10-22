@@ -1,11 +1,11 @@
 // The factory floor: buildings on a grid, belts drawn between them, and the
 // rules that decide where a belt may go. No DOM here, so it is unit testable.
-import { COLORS, PRIMARIES, TUNE } from './config.js';
+import { COLORS, TUNE } from './config.js';
 import { makeRng } from './rng.js';
 
 const key = (x, y) => `${x},${y}`;
 
-export const KIND = { DEPOSIT: 'deposit', MIXER: 'mixer', DEPOT: 'depot' };
+export const KIND = { DEPOSIT: 'deposit', MIXER: 'mixer', DEPOT: 'depot', SPLITTER: 'splitter' };
 
 export class World {
   constructor(seed = 1, shape = TUNE) {
@@ -16,8 +16,13 @@ export class World {
     this.maxBuildings = Math.min(TUNE.maxBuildings, Math.round((this.cols * this.rows) / 14));
     this.buildings = [];
     this.belts = [];
-    this.stock = { belts: TUNE.startBelts, bridges: TUNE.startBridges };
+    this.stock = { belts: TUNE.startBelts, bridges: TUNE.startBridges, credits: TUNE.startCredits };
     this.speed = TUNE.beltSpeed;
+    // Research moves these, so nothing reads the raw tunables at run time.
+    this.caps = { mixer: TUNE.mixerCap, depot: TUNE.depotCap, deposit: TUNE.depositCap, splitter: TUNE.splitterCap };
+    this.jamFuse = TUNE.jamFuse;
+    this.unlocked = { splitter: false };
+    this.techs = {}; // tech id -> levels bought
     this.nextId = 1;
     this.cellBuilding = new Map();
     this.cellBelts = new Map(); // interior belt cells only: key -> [{ belt, index }]
@@ -133,8 +138,16 @@ export class World {
 
 // ---- drawing a belt ----
 
-export const canStartFrom = (b) => b.kind === KIND.DEPOSIT || b.kind === KIND.MIXER;
-export const canEndAt = (b) => b.kind === KIND.MIXER || b.kind === KIND.DEPOT;
+export const canStartFrom = (b) => b.kind !== KIND.DEPOT;
+export const canEndAt = (b) => b.kind !== KIND.DEPOSIT;
+
+// Where the player may drop a machine they have bought: empty floor, clear of
+// the belts already running, with a cell of air between it and its neighbours.
+export function canPlaceAt(world, x, y) {
+  if (!world.inside(x, y)) return false;
+  if (world.buildingAt(x, y) || world.beltsAt(x, y).length) return false;
+  return !world.buildings.some((b) => Math.max(Math.abs(b.x - x), Math.abs(b.y - y)) < 2);
+}
 
 export function createDraft(world, building) {
   return {
@@ -276,6 +289,7 @@ function route(world, from, to, trail, allowBridges) {
 // Re-route the whole belt towards the cursor on every move: the line stays
 // smooth and legal while still hugging the detours the player dragged.
 export function draftTo(world, draft, target) {
+  if (!canStartFrom(draft.from)) return fail(draft, 'kind'); // a shop is the end of the line
   if (!world.inside(target.x, target.y)) return draft;
   draft.trail.add(`${target.x},${target.y}`);
 
@@ -399,24 +413,14 @@ export function seedWorld(world) {
   return world;
 }
 
-// What the factory needs next: enough mixers to serve the depots, enough ore to
-// feed the mixers, and otherwise another customer.
+// Only demand arrives on its own now — machines and deposits are bought — and a
+// new shop only ever asks for a colour the floor can already make.
 export function nextArrival(world, rng) {
-  const count = (kind) => world.buildings.filter((b) => b.kind === kind).length;
-  const depots = count(KIND.DEPOT);
-  const mixers = count(KIND.MIXER);
-  const deposits = count(KIND.DEPOSIT);
-  const have = new Set(world.buildings.filter((b) => b.kind === KIND.DEPOSIT).map((b) => b.color));
-  const missing = PRIMARIES.filter((p) => !have.has(p));
-
-  if (mixers === 0 || depots / mixers > 2.4) return { kind: KIND.MIXER };
-  if (missing.length && rng() < 0.45) return { kind: KIND.DEPOSIT, color: rng.pick(missing) };
-  if (deposits < depots) return { kind: KIND.DEPOSIT, color: rng.pick([...have]) };
-
-  const options = makeableColors(world).filter((c) => COLORS[c].parts.length > 1);
-  if (!options.length) return { kind: KIND.MIXER };
-  // Lean towards the deeper recipes once the plant can handle them.
-  const deep = options.filter((c) => COLORS[c].parts.length === 3);
-  const color = deep.length && rng() < 0.3 ? rng.pick(deep) : rng.pick(options);
+  const options = makeableColors(world);
+  if (!options.length) return null;
+  const deep = options.filter((c) => COLORS[c].parts.length > 1);
+  const pool = deep.length && rng() < 0.75 ? deep : options;
+  const deepest = pool.filter((c) => COLORS[c].parts.length === 3);
+  const color = deepest.length && rng() < 0.3 ? rng.pick(deepest) : rng.pick(pool);
   return { kind: KIND.DEPOT, color };
 }

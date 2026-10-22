@@ -95,6 +95,7 @@ export class Renderer {
     if (ui.draft) this.drawDraft(ui.draft, t);
     for (const belt of this.world.belts) this.drawItems(belt);
     for (const b of this.world.buildings) this.drawBuilding(b, sim, t, ui);
+    if (ui.placing && ui.cell) this.drawGhost(ui.placing, ui.cell, ui.canPlace, t);
 
     ctx.restore();
     this.noShadow();
@@ -296,6 +297,7 @@ export class Renderer {
     this.shadow('rgba(63,70,84,.3)', 9, 4);
     if (b.kind === KIND.DEPOSIT) this.drawDeposit(b, half);
     else if (b.kind === KIND.MIXER) this.drawMixer(b, half, t);
+    else if (b.kind === KIND.SPLITTER) this.drawSplitter(b, half);
     else this.drawDepot(b, half);
     this.noShadow();
 
@@ -309,12 +311,15 @@ export class Renderer {
     }
     ctx.restore();
 
-    if (b.kind === KIND.MIXER) this.drawChips(b, cx, cy + half + 0.26, TUNE.mixerCap);
+    const cap = this.world.caps[b.kind];
+    if (b.kind === KIND.MIXER) this.drawChips(b, cx, cy + half + 0.26, cap);
     if (b.kind === KIND.DEPOT) {
       this.drawOrders(b, cx, cy - half - 0.3);
-      if (b.buffer.length) this.drawChips(b, cx, cy + half + 0.26, TUNE.depotCap);
+      if (b.buffer.length) this.drawChips(b, cx, cy + half + 0.26, cap);
     }
-    if (b.kind === KIND.DEPOSIT && b.buffer.length) this.drawChips(b, cx, cy + half + 0.26, TUNE.depositCap);
+    if ((b.kind === KIND.DEPOSIT || b.kind === KIND.SPLITTER) && b.buffer.length) {
+      this.drawChips(b, cx, cy + half + 0.26, cap);
+    }
     if (b.jam > 0) this.drawAlarm(b, cx, cy, half, t);
   }
 
@@ -376,6 +381,41 @@ export class Renderer {
       ctx.beginPath();
       ctx.arc(0, 0, half * 0.76, -Math.PI / 2, -Math.PI / 2 + k * Math.PI * 2);
       ctx.stroke();
+    }
+  }
+
+  // One belt in, two out: a fork, drawn in the machine's grey.
+  drawSplitter(b, half) {
+    const { ctx } = this;
+    ctx.fillStyle = '#f7f8fa';
+    roundRect(ctx, -half, -half, half * 2, half * 2, half * 0.34);
+    ctx.fill();
+    this.noShadow();
+    ctx.strokeStyle = 'rgba(63,70,84,.18)';
+    ctx.lineWidth = 0.055;
+    roundRect(ctx, -half + 0.05, -half + 0.05, half * 2 - 0.1, half * 2 - 0.1, half * 0.3);
+    ctx.stroke();
+
+    const r = half * 0.58;
+    ctx.strokeStyle = 'rgba(63,70,84,.55)';
+    ctx.lineWidth = 0.085;
+    ctx.beginPath();
+    ctx.moveTo(-r, 0);
+    ctx.lineTo(0, 0);
+    ctx.moveTo(0, 0);
+    ctx.lineTo(r, -r * 0.72);
+    ctx.moveTo(0, 0);
+    ctx.lineTo(r, r * 0.72);
+    ctx.stroke();
+    for (const [x, y] of [
+      [-r, 0],
+      [r, -r * 0.72],
+      [r, r * 0.72],
+    ]) {
+      ctx.fillStyle = INK;
+      ctx.beginPath();
+      ctx.arc(x, y, 0.07, 0, Math.PI * 2);
+      ctx.fill();
     }
   }
 
@@ -466,6 +506,34 @@ export class Renderer {
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
     ctx.fillText('!', cx + half + 0.1, cy - half - 0.07);
+  }
+
+  // The machine you have just bought, following the cursor until you drop it.
+  drawGhost(placing, cell, ok, t) {
+    const { ctx } = this;
+    const half = BUILDING / 2;
+    const cx = cell.x + 0.5;
+    const cy = cell.y + 0.5;
+
+    ctx.save();
+    ctx.globalAlpha = 0.75;
+    ctx.translate(cx, cy);
+    this.shadow('rgba(63,70,84,.25)', 9, 4);
+    const stand = { ...placing, buffer: [], craft: 0, out: null, pendingOut: null };
+    if (placing.kind === KIND.DEPOSIT) this.drawDeposit(stand, half);
+    else if (placing.kind === KIND.SPLITTER) this.drawSplitter(stand, half);
+    else this.drawMixer(stand, half, t);
+    this.noShadow();
+    ctx.restore();
+
+    ctx.strokeStyle = ok ? 'rgba(96,189,129,.95)' : 'rgba(236,90,90,.9)';
+    ctx.lineWidth = 0.07;
+    ctx.setLineDash([0.18, 0.14]);
+    ctx.lineDashOffset = -t * 1.5;
+    const pad = half + 0.42;
+    roundRect(ctx, cx - pad, cy - pad, pad * 2, pad * 2, 0.34);
+    ctx.stroke();
+    ctx.setLineDash([]);
   }
 }
 

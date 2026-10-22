@@ -27,6 +27,8 @@ export class Controls {
     this.hooks = hooks;
     this.draft = null;
     this.hover = null;
+    this.placing = null; // a machine bought from the store, waiting to be dropped
+    this.cell = null; // cell under the pointer, for the placement ghost
     this.locked = false;
     this.pointer = null;
     this.start = null;
@@ -40,14 +42,24 @@ export class Controls {
     canvas.addEventListener('pointercancel', () => this.cancel());
     canvas.addEventListener('pointerleave', () => {
       if (!this.draft) this.setHover(null);
+      if (this.pointer === null) this.cell = null;
     });
     canvas.addEventListener('contextmenu', (e) => e.preventDefault());
   }
 
   setWorld(world) {
     this.world = world;
+    this.placing = null;
+    this.cell = null;
     this.finish();
     this.setHover(null);
+  }
+
+  // Arm or disarm placement; the cursor says which mode the board is in.
+  setPlacing(placing) {
+    this.placing = placing;
+    this.setHover(null);
+    this.canvas.style.cursor = placing ? 'copy' : 'default';
   }
 
   cellOf(e) {
@@ -68,6 +80,15 @@ export class Controls {
     if (this.locked || this.pointer !== null) return;
     const cell = this.cellOf(e);
     if (!this.world.inside(cell.x, cell.y)) return;
+    this.cell = cell;
+    // While placing a machine, the board is a target, not a drawing surface.
+    if (this.placing) {
+      this.canvas.setPointerCapture(e.pointerId);
+      this.pointer = e.pointerId;
+      this.start = { x: e.clientX, y: e.clientY, cell };
+      this.moved = 0;
+      return;
+    }
     this.canvas.setPointerCapture(e.pointerId);
     this.pointer = e.pointerId;
     this.start = { x: e.clientX, y: e.clientY, cell };
@@ -84,9 +105,10 @@ export class Controls {
   }
 
   move(e) {
+    const where = this.cellOf(e);
+    if (this.world.inside(where.x, where.y)) this.cell = where;
     if (this.pointer === null) {
-      const cell = this.cellOf(e);
-      this.setHover(this.world.buildingAt(cell.x, cell.y) ?? this.beltUnder(cell));
+      if (!this.placing) this.setHover(this.world.buildingAt(where.x, where.y) ?? this.beltUnder(where));
       return;
     }
     if (e.pointerId !== this.pointer) return;
@@ -110,6 +132,12 @@ export class Controls {
 
   up(e) {
     if (e.pointerId !== this.pointer) return;
+    if (this.placing) {
+      const cell = this.cellOf(e);
+      this.finish();
+      if (this.world.inside(cell.x, cell.y)) this.hooks.onPlace?.(cell);
+      return;
+    }
     const draft = this.draft;
     const target = this.tapTarget;
     const tapped = this.moved <= TAP;
