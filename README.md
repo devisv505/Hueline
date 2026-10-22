@@ -1,10 +1,12 @@
-# Hueline — prototype 1
+# Hueline
 
 An automation game with no spreadsheets in it. Ore deposits drop primary
 colours, mixers combine two different colours into a new one, and shops want
 whatever the mixers can make. You do one thing: draw the belts.
 
-Play it at `prototype_1/` (see **Running it** below).
+Plain HTML, CSS and JavaScript modules, with no build step. It started life as
+`prototype_1/` in [Pawzzle](https://github.com/devisv505/Pawzzle) and moved here
+once it outgrew being a prototype; the history came with it.
 
 ## The loop
 
@@ -94,18 +96,19 @@ be run headless — which is what the tests do.
 ## Art
 
 Everything on the floor is drawn to canvas and every icon is an inline SVG
-symbol, so the prototype ships with no image files at all. `docs/ASSET_PROMPTS.md`
+symbol, so the game ships with no image files at all. `docs/ASSET_PROMPTS.md`
 holds the prompts if you want generated icon art instead, along with the palette,
 the slicing command and a note on what you give up by swapping SVG for PNG.
 
 ## Running it
 
 ```sh
-npm start                 # serves the repo; open /prototype_1/
-npm test                  # runs the Pawzzle and Hueline tests
+npm start        # serves the folder on http://localhost:8080
+npm test         # the rules, as assertions
 ```
 
-Module scripts do not load from `file://`, so it needs a server.
+Any static file server works. Opening `index.html` straight from disk doesn't,
+because browsers block JavaScript modules on `file://`.
 
 ## Where it would go next
 

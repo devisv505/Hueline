@@ -1,4 +1,4 @@
-// Synthesized blips, so the prototype ships without audio files.
+// Synthesized blips, so the game ships without audio files.
 let ctx = null;
 let enabled = true;
 

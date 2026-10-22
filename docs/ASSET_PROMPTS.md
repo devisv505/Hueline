@@ -1,12 +1,12 @@
 # Hueline: art asset prompts
 
 Prompts for the icons and art Hueline would use. The target look is
-`docs/reference/factory.webp` — a screenshot of the prototype running.
+`docs/reference/factory.webp` — a screenshot of the game running.
 **Attach that image to every prompt.**
 
-This is **not** the Pawzzle look. Pawzzle is warm wood, jelly cats and brown
-outlines; Hueline is cool, flat and papery: white, pastel, soft shadows, no
-outlines. Do not reuse `docs/ASSET_PROMPTS.md` at the repo root as a style guide.
+Hueline is cool, flat and papery: white, pastel, soft shadows, no outlines. It
+grew out of [Pawzzle](https://github.com/devisv505/Pawzzle), whose own art guide
+is warm wood, jelly cats and brown outlines — do not reuse that one here.
 
 ---
 
@@ -17,7 +17,7 @@ outlines. Do not reuse `docs/ASSET_PROMPTS.md` at the repo root as a style guide
 2. For every prompt after `01`, attach **two images**: `factory.webp`, plus your
    approved `icons.png`. Those prompts already say *"Image 2 is the approved style"*.
 3. Save each result under the exact filename shown and put it in
-   `prototype_1/assets/raw/`. The sheets get sliced with the repo's existing tool —
+   `assets/raw/`. The sheets get sliced with `tools/slice_sheet.py` —
    see §5 — so don't crop anything yourself.
 4. Regenerate a sheet if it has the wrong number of items, if items touch, if the
    line weights drift between items, or if it contains text. Even spacing and one
@@ -205,21 +205,21 @@ Background: fully transparent PNG (fallback: solid flat #FF00FF magenta).
 
 ## 5. Slicing the sheets
 
-Only needed if you ship the PNGs instead of tracing. The repo's existing tool
+Only needed if you ship the PNGs instead of tracing. `tools/slice_sheet.py`
 handles it, and this command was run against a stand-in sheet to confirm it cuts
 and names all 24 in order. From the repo root:
 
 ```sh
-python3 tools/slice_sheet.py prototype_1/assets/raw/icons.png --grid 6x4 --size 192 \
-  --out prototype_1/assets/img/icons \
+python3 tools/slice_sheet.py assets/raw/icons.webp --grid 6x4 --size 192 \
+  --out assets/img/icons \
   --names belt,belt-fast,bridge,splitter,erase,plus,\
 mixer,ore,shop,alarm,vent,shield,\
 store,credit,lab,star,help,close,\
 play,pause,fast,restart,sound,mute
 
-python3 tools/slice_sheet.py prototype_1/assets/raw/machines.png --grid 2x2 \
+python3 tools/slice_sheet.py assets/raw/machines.png --grid 2x2 \
   --names mixer,mixer-busy,splitter,broken \
-  --out prototype_1/assets/img/machines --fit item
+  --out assets/img/machines --fit item
 ```
 
 Add `--key ff00ff` to either command if the sheet came back on magenta.
