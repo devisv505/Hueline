@@ -1,0 +1,120 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#f5f6f8">
+  <meta name="description" content="Mini Factory: draw conveyor belts, mix primary ores into new colours and keep every order moving.">
+  <title>Mini Factory — Pawzzle prototype</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Nunito:wght@600;700;800&display=swap">
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <svg class="sprite" aria-hidden="true">
+    <symbol id="i-belt" viewBox="0 0 24 24">
+      <path d="M4 8h10a4 4 0 0 1 0 8H8" fill="none" stroke="currentColor" stroke-width="3.2" stroke-linecap="round"/>
+      <circle cx="4.5" cy="16" r="1.7"/>
+    </symbol>
+    <symbol id="i-bridge" viewBox="0 0 24 24">
+      <path d="M3 15h18" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" opacity=".35"/>
+      <path d="M6 20V9a6 6 0 0 1 12 0v11" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"/>
+    </symbol>
+    <symbol id="i-play" viewBox="0 0 24 24"><path d="M8 5.5v13l11-6.5z"/></symbol>
+    <symbol id="i-pause" viewBox="0 0 24 24"><rect x="7" y="5" width="3.6" height="14" rx="1.6"/><rect x="13.4" y="5" width="3.6" height="14" rx="1.6"/></symbol>
+    <symbol id="i-fast" viewBox="0 0 24 24"><path d="M3 6v12l8-6zM12.5 6v12l8-6z"/></symbol>
+    <symbol id="i-sound" viewBox="0 0 24 24"><path d="M5 9.5h3.5L13 5.5v13L8.5 14.5H5z"/><path d="M16 9a4.5 4.5 0 0 1 0 6" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></symbol>
+    <symbol id="i-mute" viewBox="0 0 24 24"><path d="M5 9.5h3.5L13 5.5v13L8.5 14.5H5z"/><path d="M16.5 9.5l4 5M20.5 9.5l-4 5" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></symbol>
+    <symbol id="i-help" viewBox="0 0 24 24"><path d="M9.2 9a2.9 2.9 0 1 1 3.6 2.8c-.9.3-1.3 1-1.3 1.9v.6" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/><circle cx="11.6" cy="18" r="1.5"/></symbol>
+    <symbol id="i-close" viewBox="0 0 24 24"><path d="M7 7l10 10M17 7L7 17" fill="none" stroke="currentColor" stroke-width="2.8" stroke-linecap="round"/></symbol>
+    <symbol id="i-restart" viewBox="0 0 24 24"><path d="M19 12a7 7 0 1 1-2.6-5.4" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"/><path d="M19 4v4.6h-4.6"  fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  </svg>
+
+  <div id="app">
+    <header class="hud">
+      <p class="kicker">Mini Factory</p>
+      <div class="pills">
+        <span class="pill" id="pill-belts" title="Belt tiles left">
+          <svg class="icon"><use href="#i-belt"></use></svg><b id="belt-count">0</b>
+        </span>
+        <span class="pill" id="pill-bridges" title="Bridges left">
+          <svg class="icon"><use href="#i-bridge"></use></svg><b id="bridge-count">0</b>
+        </span>
+        <button class="pill ghost" id="btn-speed" aria-label="Speed"><svg class="icon"><use href="#i-play" id="speed-icon"></use></svg></button>
+        <button class="pill ghost" id="btn-sound" aria-label="Sound"><svg class="icon"><use href="#i-sound" id="sound-icon"></use></svg></button>
+        <button class="pill ghost" id="btn-help" aria-label="How to play"><svg class="icon"><use href="#i-help"></use></svg></button>
+      </div>
+    </header>
+
+    <main class="stage" id="stage">
+      <canvas id="scene"></canvas>
+      <p class="coach" id="coach" hidden></p>
+    </main>
+
+    <footer class="board">
+      <h1 class="factory-name" id="factory-name">Prism Works</h1>
+      <span class="rule"></span>
+      <div class="score" id="score">0</div>
+    </footer>
+  </div>
+
+  <div id="toasts"></div>
+  <div id="fx"></div>
+
+  <div class="overlay" id="title">
+    <div class="card title-card">
+      <p class="kicker pink">Pawzzle prototype</p>
+      <h2>Mini Factory</h2>
+      <div class="recipe-strip" aria-hidden="true">
+        <span class="chip blue"></span><span class="plus">+</span><span class="chip yellow"></span>
+        <span class="arrow">→</span><span class="chip green"></span>
+      </div>
+      <p class="blurb">Drag a belt from an ore deposit to a mixer. Two different colours go in, a new one comes out. Keep every shop supplied — and never let a mixer choke on a single colour.</p>
+      <button class="btn big" id="btn-play"><svg class="icon"><use href="#i-play"></use></svg><span>Start the line</span></button>
+      <button class="btn link" id="btn-how">How it works</button>
+    </div>
+  </div>
+
+  <div class="overlay" id="help" hidden>
+    <div class="card">
+      <button class="round close" data-close aria-label="Close"><svg class="icon"><use href="#i-close"></use></svg></button>
+      <p class="kicker pink">How it works</p>
+      <h2>Draw the line</h2>
+      <ul class="rules">
+        <li><b>Drag</b> from a deposit or mixer onto a machine to lay a belt. Drag back over it to undo.</li>
+        <li><b>Tap a belt</b> to pull it up and get the tiles back.</li>
+        <li><b>Belts cannot cross.</b> Where one must hop another, a bridge is spent — you only get a few.</li>
+        <li><b>Mixers combine two different colours.</b> Flood one with a single colour and the buffer overflows: it starts a countdown, then the whole line stops.</li>
+        <li><b>Tap a flashing machine</b> to dump its buffer. It costs 5 from your score, but it saves the run.</li>
+      </ul>
+      <div class="recipe-grid" id="recipe-grid"></div>
+      <button class="btn" data-close><span>Got it</span></button>
+    </div>
+  </div>
+
+  <div class="overlay" id="reward" hidden>
+    <div class="card">
+      <p class="kicker pink">Shift complete</p>
+      <h2 id="reward-title">Pick an upgrade</h2>
+      <div class="choices" id="choices"></div>
+    </div>
+  </div>
+
+  <div class="overlay" id="over" hidden>
+    <div class="card">
+      <p class="kicker red">Line stopped</p>
+      <h2 id="over-title">A mixer overflowed</h2>
+      <p class="blurb" id="over-text">Too much of one colour with nothing to mix it with.</p>
+      <div class="final">
+        <span class="final-label">Orders delivered</span>
+        <div class="score big" id="final-score">0</div>
+        <p class="best" id="best-line"></p>
+      </div>
+      <button class="btn big" id="btn-again"><svg class="icon"><use href="#i-restart"></use></svg><span>Run it again</span></button>
+    </div>
+  </div>
+
+  <script type="module" src="js/main.js"></script>
+</body>
+</html>
