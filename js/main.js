@@ -1,11 +1,11 @@
 // Screens, upgrades and the frame loop that ties the factory together.
-import { COLORS, TUNE, FACTORY_NAMES, PRIMARIES, GOODS, TECHS, techCost } from './config.js?v=3';
-import { World, KIND, seedWorld, canPlaceAt, canManage, makeableColors, inboundBelts, createDraft, draftTo, commitDraft } from './world.js?v=3';
-import { Sim } from './sim.js?v=3';
-import { Renderer } from './render.js?v=3';
-import { Controls } from './input.js?v=3';
-import { unlockAudio, setSoundEnabled, sfx } from './audio.js?v=3';
-import { burst, ring, floater, toast, confetti, shake, pop } from './fx.js?v=3';
+import { COLORS, TUNE, FACTORY_NAMES, PRIMARIES, GOODS, TECHS, techCost } from './config.js?v=4';
+import { World, KIND, seedWorld, canPlaceAt, canManage, makeableColors, inboundBelts, createDraft, draftTo, commitDraft } from './world.js?v=4';
+import { Sim } from './sim.js?v=4';
+import { Renderer } from './render.js?v=4';
+import { Controls } from './input.js?v=4';
+import { unlockAudio, setSoundEnabled, sfx } from './audio.js?v=4';
+import { burst, ring, floater, toast, confetti, shake, pop } from './fx.js?v=4';
 
 const $ = (id) => document.getElementById(id);
 const SAVE_KEY = 'hueline.v1';
