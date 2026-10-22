@@ -1,7 +1,7 @@
 // The factory floor: buildings on a grid, belts drawn between them, and the
 // rules that decide where a belt may go. No DOM here, so it is unit testable.
-import { COLORS, TUNE } from './config.js?v=5';
-import { makeRng } from './rng.js?v=5';
+import { COLORS, TUNE } from './config.js?v=4';
+import { makeRng } from './rng.js?v=4';
 
 const key = (x, y) => `${x},${y}`;
 
