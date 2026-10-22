@@ -168,17 +168,63 @@ Spell "HUELINE" exactly, as one word, no other text, no tagline, no watermark.
 Background: fully transparent PNG (fallback: solid flat #FF00FF magenta).
 ```
 
-### 03 · `app_icon.png`: favicon and home-screen icon (1024×1024, opaque)
+### 03 · `app_icon.png`: the game icon (1024×1024, opaque)
+
+The tab icon and home-screen icon. It has one job: say *colour goes in, a new
+colour comes out* at 32 pixels. That rules out the machine, the grid and
+anything with a thin line in it — at tab size only the coloured dots survive, so
+the whole composition is built around three of them.
+
+Attach `docs/reference/factory.webp`. Ask for 1024×1024.
 
 ```
-Image 1 is the colour and mood reference.
+Use the attached image as the COLOUR and MOOD reference only (do not copy its layout).
 
-A square app icon, full bleed to the edges, no rounded corners (the platform adds them). Flat vector, solid fills, no gradients or gloss.
+Style: flat vector, geometric, solid fills only. No gradients, no gloss, no bevels, no texture, no outlines in a darker shade. One soft neutral drop shadow under the white shapes, offset slightly down, and nothing else. Clean, friendly, modern — like a well-made transit map.
 
-On a white background with a very faint pale grey square grid: one white conveyor belt with a soft grey drop shadow running from the lower-left to the upper-right, carrying three round dots — Cobalt #6CA7E8 and Amber #F3C44D entering from the left, and a single Fern green #7CCF8C dot leaving to the right. In the middle of the belt, a white rounded square machine with a soft shadow and a simple grey circular rotor mark on it. One soft pastel pink #F9CDD8 organic blob behind the composition in the upper-left, and one pale teal #A9E4E0 blob in the lower-right, both well behind the belt. Bold, simple and readable at 32 pixels: three dots, one machine, one belt, nothing else.
+A square app icon, full bleed to the edges, no rounded corners and no circular badge (the platform adds its own). Background: near-white #FAFAFB.
 
-No text, letters, numbers or watermark. Fully opaque, no transparency.
+The whole composition is a single white conveyor junction shaped like a sideways Y, with generously rounded ends and corners, drawn as thick bars about 15% of the image wide:
+- one arm enters from the upper left,
+- a second arm enters from the lower left,
+- the two meet at a junction a little left of centre and continue as ONE bar that exits to the right edge.
+The junction is a smooth rounded merge, like two roads joining, not a sharp fork.
+
+Three solid circles ride that junction, each about 20% of the image across, evenly spaced and clearly separated:
+- Cobalt blue #6CA7E8 centred on the upper left arm,
+- Amber yellow #F3C44D centred on the lower left arm,
+- Fern green #7CCF8C centred on the single bar to the RIGHT of the junction.
+The green one is the output, so give it slightly more space around it than the other two.
+
+Behind everything, two very soft pastel blobs at low contrast, well out of the way of the dots: pale pink #F9CDD8 in the top-left corner and pale teal #A9E4E0 in the bottom-right corner. They must stay faint background shapes and must never touch or tint the circles.
+
+Readable at 32 pixels: three big dots and one white junction, nothing else. No machine, no gears, no grid lines, no arrows, no sparkles, no thin strokes anywhere.
+
+No text, letters, numbers, logo or watermark. Fully opaque, no transparency, no alpha.
 ```
+
+**If that comes back cluttered**, fall back to the simplest version that still tells
+the story — three dots on one straight belt:
+
+```
+Use the attached image as the COLOUR and MOOD reference only.
+
+Style: flat vector, geometric, solid fills, no gradients or gloss, one soft drop shadow under the white shape.
+
+A square app icon, full bleed, no rounded corners, on a near-white #FAFAFB background. A single horizontal white conveyor bar with rounded ends, about 16% of the image tall, running across the middle with a wide margin at each end. Three solid circles sit on it, evenly spaced, each about 22% of the image across: Cobalt blue #6CA7E8, then Amber yellow #F3C44D, then Fern green #7CCF8C. Two very soft pastel blobs far behind at low contrast: pale pink #F9CDD8 top-left, pale teal #A9E4E0 bottom-right.
+
+Readable at 32 pixels. No machine, no grid, no arrows, no thin lines, no text, no watermark. Fully opaque.
+```
+
+**What to check before accepting one.** Shrink it to 32×32 and look: the three
+colours should still be three distinct colours, and the white shape should still
+read as a line rather than a smudge. If the dots merge into each other or the
+junction disappears, the shapes are too small — ask again with "larger circles,
+fewer elements, more empty space".
+
+**Sizes to export** from the 1024 master: `icon-180.png` for the home screen,
+`icon-32.png` and `icon-16.png` for the tab. Drop them in `assets/icons/` and
+they get linked from `index.html`.
 
 ### 04 · `machines.png`: machine housings, optional (1024×1024)
 
