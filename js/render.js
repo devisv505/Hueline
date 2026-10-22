@@ -1,7 +1,7 @@
 // Everything you see on the factory floor, drawn to one canvas in cell units.
-import { COLORS, TUNE } from './config.js?v=3';
-import { KIND } from './world.js?v=3';
-import { makeRng } from './rng.js?v=3';
+import { COLORS, TUNE } from './config.js?v=4';
+import { KIND } from './world.js?v=4';
+import { makeRng } from './rng.js?v=4';
 
 const INK = '#3f4654';
 const PAPER = '#ffffff';
@@ -11,7 +11,11 @@ const ROAD = '#ffffff';
 const ROAD_EDGE = 'rgba(63,70,84,.10)';
 const ALARM = '#ec5a5a';
 const BUILDING = 1.34; // cells across
-const MERGE_TRIM = 0.38; // how far short of a junction the flow dashes stop
+// A joining belt stops just short of the lane's centre line. Its round cap then
+// sits inside the lane, which draws over it, so the two read as one flush T or
+// L. Run it to the centre instead and the cap bulges out the far side.
+const MERGE_TRIM = 0.2;
+const MERGE_DASH_TRIM = 0.42; // the flow dashes stop further back still
 
 const ease = (k) => 1 - Math.pow(1 - k, 3);
 const backOut = (k) => 1 + 2.4 * Math.pow(k - 1, 3) + 1.4 * Math.pow(k - 1, 2);
@@ -90,9 +94,10 @@ export class Renderer {
 
     this.drawScenery();
     this.drawGrid();
-    for (const belt of this.world.belts) this.beltShadow(belt);
-    for (const belt of this.world.belts) this.beltBody(belt, t);
-    for (const belt of this.world.belts) this.beltBridges(belt);
+    const lanes = this.beltOrder();
+    for (const belt of lanes) this.beltShadow(belt);
+    for (const belt of lanes) this.beltBody(belt, t);
+    for (const belt of lanes) this.beltBridges(belt);
     if (ui.draft) this.drawDraft(ui.draft, t);
     for (const belt of this.world.belts) this.drawItems(belt);
     for (const b of this.world.buildings) this.drawBuilding(b, sim, t, ui);
@@ -144,10 +149,23 @@ export class Renderer {
 
   // ---- belts ----
 
-  // The white surface of a joining belt runs right into the lane, so the two
-  // fuse into a T or an L. Only the flow dashes stop short, which keeps the
-  // junction clean instead of crossing one dashed line over another.
-  dashPts(belt) {
+  // Joining belts are drawn before the lane they join, so the lane paints over
+  // the cap and the junction has no seam. Deepest feeder first, in case one
+  // joining belt is itself joined by another.
+  beltOrder() {
+    const depth = new Map();
+    const rank = (belt, guard = 0) => {
+      if (depth.has(belt.id)) return depth.get(belt.id);
+      const target = belt.feed ? this.world.beltById(belt.feed.beltId) : null;
+      const value = !target || guard > 16 ? 0 : rank(target, guard + 1) + 1;
+      depth.set(belt.id, value);
+      return value;
+    };
+    return [...this.world.belts].sort((a, b) => rank(b) - rank(a));
+  }
+
+  // The path of a joining belt, pulled back from the lane it meets.
+  mergePts(belt, back) {
     if (!belt.feed || belt.pts.length < 2) return belt.pts;
     const pts = belt.pts.slice();
     const last = pts.at(-1);
@@ -155,8 +173,8 @@ export class Renderer {
     const dx = last.x - prev.x;
     const dy = last.y - prev.y;
     const dist = Math.hypot(dx, dy) || 1;
-    const back = Math.min(MERGE_TRIM, dist * 0.9);
-    pts[pts.length - 1] = { x: last.x - (dx / dist) * back, y: last.y - (dy / dist) * back };
+    const trim = Math.min(back, dist * 0.9);
+    pts[pts.length - 1] = { x: last.x - (dx / dist) * trim, y: last.y - (dy / dist) * trim };
     return pts;
   }
 
@@ -169,7 +187,7 @@ export class Renderer {
 
   beltShadow(belt) {
     const { ctx } = this;
-    this.tracePath(belt.pts);
+    this.tracePath(this.mergePts(belt, MERGE_TRIM));
     this.shadow('rgba(63,70,84,.22)', 7, 3);
     ctx.strokeStyle = ROAD;
     ctx.lineWidth = 0.54;
@@ -179,17 +197,18 @@ export class Renderer {
 
   beltBody(belt, t) {
     const { ctx } = this;
-    this.tracePath(belt.pts);
+    const pts = this.mergePts(belt, MERGE_TRIM);
+    this.tracePath(pts);
     ctx.strokeStyle = ROAD_EDGE;
     ctx.lineWidth = 0.56;
     ctx.stroke();
-    this.tracePath(belt.pts);
+    this.tracePath(pts);
     ctx.strokeStyle = ROAD;
     ctx.lineWidth = 0.5;
     ctx.stroke();
 
     // Dashes crawling towards the destination: the belt's direction, at a glance.
-    this.tracePath(this.dashPts(belt));
+    this.tracePath(this.mergePts(belt, MERGE_DASH_TRIM));
     ctx.setLineDash([0.22, 0.3]);
     ctx.lineDashOffset = -t * this.world.speed * 0.5;
     ctx.strokeStyle = 'rgba(63,70,84,.17)';

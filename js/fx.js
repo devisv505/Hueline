@@ -1,6 +1,6 @@
 // Pop-up juice: toasts, floating numbers, bursts and confetti, all in a fixed
 // DOM layer above the canvas so the renderer stays a pure redraw.
-import { COLORS } from './config.js?v=3';
+import { COLORS } from './config.js?v=4';
 
 export const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
 
