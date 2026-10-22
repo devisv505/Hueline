@@ -62,10 +62,11 @@ const hooks = {
   },
   onJam(b) {
     sfx.alarm();
-    toast(`${label(b)} is overflowing — tap it to dump the buffer`, { color: '#ec5a5a', icon: true });
+    toast(`${label(b)} is overflowing — tap it to dump the buffer`, { color: '#ec5a5a', icon: '#i-alarm' });
   },
   onVent(b, dumped) {
     const p = at(b);
+    toast(`Buffer dumped — ${dumped} items scrapped`, { color: '#7d8699', icon: '#i-vent' });
     burst(p.x, p.y, 'slate', dumped + 4);
     floater(p.x, p.y - 10, `−${TUNE.ventCost}`, '#ec5a5a');
     sfx.erase();
@@ -75,7 +76,7 @@ const hooks = {
     const p = at(b);
     ring(p.x, p.y, b.color ?? 'slate');
     sfx.arrive();
-    if (b.kind === KIND.DEPOT) toast(`New shop wants ${COLORS[b.color].name}`, { color: COLORS[b.color].fill, icon: true });
+    if (b.kind === KIND.DEPOT) toast(`New shop wants ${COLORS[b.color].name}`, { color: COLORS[b.color].fill, icon: '#i-shop' });
   },
   onFail(b) {
     sfx.fail();
@@ -128,7 +129,7 @@ const controlHooks = {
     showStock();
     const p = renderer.toClient(belt.pts.at(-1).x, belt.pts.at(-1).y);
     burst(p.x, p.y, 'slate', 5);
-    if (cost.bridges) toast(`${cost.bridges} bridge${cost.bridges > 1 ? 's' : ''} built`, { color: '#3f4654', icon: true });
+    if (cost.bridges) toast(`${cost.bridges} bridge${cost.bridges > 1 ? 's' : ''} built`, { color: '#3f4654', icon: '#i-bridge' });
     advanceCoach();
   },
   onCancel() {
@@ -157,13 +158,13 @@ function tapBuilding(b) {
   sfx.click();
   if (b.kind === KIND.DEPOT) {
     const parts = COLORS[b.color].parts.map((p) => COLORS[p].name).join(' + ');
-    toast(`Wants ${COLORS[b.color].name} (${parts})`, { color: COLORS[b.color].fill, icon: true });
+    toast(`Wants ${COLORS[b.color].name} (${parts})`, { color: COLORS[b.color].fill, icon: '#i-shop' });
   } else if (b.kind === KIND.MIXER) {
-    toast(b.buffer.length ? `Holding ${b.buffer.map((c) => COLORS[c].name).join(', ')}` : 'Mixer is empty — feed it two colours', { color: '#3f4654', icon: true });
+    toast(b.buffer.length ? `Holding ${b.buffer.map((c) => COLORS[c].name).join(', ')}` : 'Mixer is empty — feed it two colours', { color: '#3f4654', icon: '#i-mixer' });
   } else if (b.kind === KIND.SPLITTER) {
-    toast('Splitter — it feeds its outgoing belts in turn', { color: '#3f4654', icon: true });
+    toast('Splitter — it feeds its outgoing belts in turn', { color: '#3f4654', icon: '#i-splitter' });
   } else {
-    toast(`${COLORS[b.color].name} ore, one every ${TUNE.oreInterval}s`, { color: COLORS[b.color].fill, icon: true });
+    toast(`${COLORS[b.color].name} ore, one every ${TUNE.oreInterval}s`, { color: COLORS[b.color].fill, icon: '#i-ore' });
   }
 }
 
@@ -311,7 +312,7 @@ function buy(id, good, color) {
   if (id === 'belts') world.stock.belts += good.amount;
   if (id === 'bridge') world.stock.bridges += good.amount;
   sfx.reward();
-  toast(`${good.label} bought`, { color: '#3f4654', icon: true });
+  toast(`${good.label} bought`, { color: '#3f4654', icon: '#i-store' });
   renderStore();
 }
 
@@ -332,7 +333,7 @@ function renderTech() {
       tech.apply(world);
       sfx.reward();
       confetti(34);
-      toast(`${tech.name} researched`, { color: '#ef7f9c', icon: true });
+      toast(`${tech.name} researched`, { color: '#ef7f9c', icon: '#i-tech' });
       renderTech();
     });
     list.append(btn);

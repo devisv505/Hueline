@@ -67,11 +67,18 @@ export function floater(x, y, text, color = '#3f4654') {
 }
 
 // A pill sliding in at the top: new building, new recipe unlocked, warnings.
+// `icon` is a sprite id like '#i-shop', or true for a plain colour dot.
 export function toast(text, { color = '#3f4654', icon = '' } = {}) {
   const el = document.createElement('div');
   el.className = 'toast';
   el.style.setProperty('--tint', color);
-  el.innerHTML = `${icon ? `<i style="background:${color}"></i>` : ''}<span>${text}</span>`;
+  const mark =
+    typeof icon === 'string' && icon.startsWith('#')
+      ? `<svg class="icon" style="color:${color}"><use href="${icon}"></use></svg>`
+      : icon
+        ? `<i style="background:${color}"></i>`
+        : '';
+  el.innerHTML = `${mark}<span>${text}</span>`;
   toastBar().append(el);
   const anim = el.animate(
     [

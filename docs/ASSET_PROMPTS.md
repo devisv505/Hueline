@@ -100,7 +100,12 @@ allows, optically centered. Calm, friendly, uncluttered — readable at 18 pixel
 
 ## 4. Prompts
 
-### 01 · `icons.png`: the whole UI icon set (1536×1024)
+### 01 · `icons.png`: the whole UI icon set (1536×1024) — ✅ done
+
+Generated and kept at `assets/raw/icons.webp`. It was **traced into SVG** rather
+than sliced, per §6: all 24 now live as `<symbol>` elements in `index.html`,
+drawn in `currentColor`, so the low-stock red, the locked grey and the pink store
+tint all still work. Regenerate against this prompt if you want to redo the set.
 
 24 icons in a 6×4 grid. At 1536×1024 each cell is exactly 256×256, which is why
 those numbers matter — keep them.
@@ -200,7 +205,9 @@ Background: fully transparent PNG (fallback: solid flat #FF00FF magenta).
 
 ## 5. Slicing the sheets
 
-The repo's existing tool handles it. From the repo root:
+Only needed if you ship the PNGs instead of tracing. The repo's existing tool
+handles it, and this command was run against a stand-in sheet to confirm it cuts
+and names all 24 in order. From the repo root:
 
 ```sh
 python3 tools/slice_sheet.py prototype_1/assets/raw/icons.png --grid 6x4 --size 192 \
@@ -235,7 +242,8 @@ store states. **Raster icons lose both.** Two sensible options:
   needs to change colour, and keep the sprites at 3× (192 px for a 64 px slot) for
   retina.
 
-Either way, these names map 1:1 onto the `#i-*` symbol ids already in
-`index.html`, except `erase`, `plus`, `shop`, `alarm`, `vent`, `credit` and `star`,
-which are spares for the delete-belt tool, the vent action and a future results
-screen.
+Either way, these names map 1:1 onto the `#i-*` symbol ids in `index.html`. Of
+the seven that were spares when this was written, `shop`, `alarm`, `vent` and
+`credit` are now in use — on the new-shop and overflow toasts, the vent
+confirmation and the wallet line. `erase`, `plus` and `star` are still unused, and
+are there for a delete-belt tool and a results screen.
