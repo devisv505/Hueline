@@ -115,6 +115,18 @@ npm test         # the rules, as assertions
 Any static file server works. Opening `index.html` straight from disk doesn't,
 because browsers block JavaScript modules on `file://`.
 
+## Deploying
+
+GitHub Pages lets a browser hold on to `js` and `css` for a while, and an ES
+module graph is cached per URL — so versioning only the entry script leaves
+every import it pulls in stale, and a half-old build runs. Before pushing a
+change you want live, stamp a new version across the stylesheet, the entry
+script and every relative import at once:
+
+```sh
+python3 tools/bump_version.py
+```
+
 ## Where it would go next
 
 - Mergers, to go with the splitters.

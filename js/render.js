@@ -1,7 +1,7 @@
 // Everything you see on the factory floor, drawn to one canvas in cell units.
-import { COLORS, TUNE } from './config.js';
-import { KIND } from './world.js';
-import { makeRng } from './rng.js';
+import { COLORS, TUNE } from './config.js?v=2';
+import { KIND } from './world.js?v=2';
+import { makeRng } from './rng.js?v=2';
 
 const INK = '#3f4654';
 const PAPER = '#ffffff';
