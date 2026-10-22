@@ -1,7 +1,7 @@
 // The factory running itself: ore drops, items ride belts, mixers combine them
 // and depots get their orders. Pure logic, driven by `tick(dt)` in seconds.
-import { TUNE, findRecipe, creditsFor } from './config.js?v=4';
-import { KIND, freeSpot, nextArrival } from './world.js?v=4';
+import { TUNE, findRecipe, creditsFor } from './config.js?v=5';
+import { KIND, freeSpot, nextArrival } from './world.js?v=5';
 
 export class Sim {
   constructor(world, hooks = {}) {
@@ -114,6 +114,7 @@ export class Sim {
       this.delivered++;
       this.world.stock.credits += paid;
       b.pending = Math.max(0, b.pending - 1);
+      b.patience = 0; // served, so the clock starts again
       b.flash = this.time;
       this.hooks.onDeliver?.(b, color, this.delivered, paid);
       return true;
@@ -177,6 +178,22 @@ export class Sim {
       b.cool += TUNE.demandInterval;
       b.pending = Math.min(TUNE.demandCap, b.pending + 1);
     }
+
+    // The dots above a shop are its orders. Leave every one of them unfilled
+    // for long enough and the shop gives up and closes, which is what makes
+    // keeping up matter once a floor is running well. Nothing is on the clock
+    // until the first delivery of the run, so the opening is never lost while
+    // the line is still being drawn, and a new shop is given a while to settle.
+    const settling = this.time - b.born < TUNE.shopGrace;
+    const waiting = b.pending >= TUNE.demandCap && this.delivered > 0 && !settling;
+    if (waiting) b.patience += dt;
+    else b.patience = Math.max(0, b.patience - dt * 3);
+    if (b.patience >= this.world.patienceFuse) {
+      this.hooks.onGiveUp?.(b);
+      this.world.removeBuilding(b);
+      return;
+    }
+
     // Only the wrong colour can pile up here, since orders are consumed on sight.
     this.fuse(b, b.buffer.length >= this.capOf(b), dt);
   }

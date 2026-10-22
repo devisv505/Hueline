@@ -56,6 +56,8 @@ export const TUNE = {
   oreInterval: 2.7, // seconds between ore drops
   demandInterval: 8.5, // seconds between new orders at a depot
   demandCap: 4,
+  patienceFuse: 26, // seconds a shop waits with every order unfilled before it closes
+  shopGrace: 30, // and how long a newly opened shop is left alone first
   splitterCap: 4,
   mergeStop: 0.5, // how far short of a junction a feeder waits its turn
   holdTime: 0.65, // seconds of press before a machine can be moved
