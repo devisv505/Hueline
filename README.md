@@ -85,9 +85,18 @@ on a machine to lay it, anywhere else to throw it away.
 | `js/main.js` | Screens, upgrades, the heads-up display, the frame loop |
 | `js/fx.js`, `js/audio.js` | Bursts, toasts, confetti and synthesized blips |
 | `tests/factory.test.mjs` | The rules above, as assertions |
+| `docs/ASSET_PROMPTS.md` | Prompts for generating the icon art |
+| `docs/reference/factory.webp` | Style reference to attach to those prompts |
 
 `config.js`, `world.js` and `sim.js` never touch the DOM, so the whole game can
 be run headless — which is what the tests do.
+
+## Art
+
+Everything on the floor is drawn to canvas and every icon is an inline SVG
+symbol, so the prototype ships with no image files at all. `docs/ASSET_PROMPTS.md`
+holds the prompts if you want generated icon art instead, along with the palette,
+the slicing command and a note on what you give up by swapping SVG for PNG.
 
 ## Running it
 
