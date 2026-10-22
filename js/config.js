@@ -57,6 +57,8 @@ export const TUNE = {
   demandInterval: 8.5, // seconds between new orders at a depot
   demandCap: 4,
   splitterCap: 4,
+  mergeStop: 0.5, // how far short of a junction a feeder waits its turn
+  holdTime: 0.65, // seconds of press before a machine can be moved
   jamFuse: 15, // seconds an overflowing machine survives
   ventCost: 5, // score paid to dump a jammed buffer
   startBelts: 46,

@@ -1,7 +1,7 @@
 // The factory running itself: ore drops, items ride belts, mixers combine them
 // and depots get their orders. Pure logic, driven by `tick(dt)` in seconds.
-import { TUNE, findRecipe, creditsFor } from './config.js?v=2';
-import { KIND, freeSpot, nextArrival } from './world.js?v=2';
+import { TUNE, findRecipe, creditsFor } from './config.js?v=3';
+import { KIND, freeSpot, nextArrival } from './world.js?v=3';
 
 export class Sim {
   constructor(world, hooks = {}) {
@@ -53,14 +53,17 @@ export class Sim {
 
   moveBelt(belt, dt) {
     const speed = this.world.speed;
+    // A belt joining another stops short of it, so its queue waits at the kerb
+    // rather than standing on top of the traffic it is trying to join.
+    const end = belt.feed ? Math.max(0, belt.len - TUNE.mergeStop) : belt.len;
     for (let i = 0; i < belt.items.length; i++) {
       const item = belt.items[i];
-      const ceiling = i === 0 ? belt.len : belt.items[i - 1].d - TUNE.itemGap;
-      item.d = Math.min(item.d + speed * dt, ceiling);
+      const ceiling = i === 0 ? end : belt.items[i - 1].d - TUNE.itemGap;
+      item.d = Math.min(item.d + speed * dt, Math.max(item.d, ceiling));
       item.stuck = item.d >= ceiling - 1e-4 && i > 0;
     }
     const head = belt.items[0];
-    if (!head || head.d < belt.len - 1e-4) return;
+    if (!head || head.d < end - 1e-4) return;
     const landed = belt.feed ? this.merge(belt.feed, head.color) : this.handOff(belt.to, head.color);
     if (landed) {
       belt.items.shift();

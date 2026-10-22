@@ -35,7 +35,10 @@ Fern do nothing, because Fern already contains blue.
 ## The three rules that make it a game
 
 1. **Belt tiles are finite.** The counter in the header is your whole budget.
-   Pull a belt up by tapping it and the tiles come back.
+   Pull a belt up by tapping it and the tiles come back. **Press and hold a
+   machine** and a ring closes around it; when it fills, the machine comes up in
+   hand to drop somewhere else or scrap. Moving takes its belts with it and
+   hands back the tiles. Scrapping gives back no credits.
 2. **Belts cannot cross.** Where a route has to hop another belt it spends a
    bridge, and a belt has to run straight across one — no turning up there.
    They *can* join, though: drop a belt onto a running lane and its load merges

@@ -1,7 +1,7 @@
 // Everything you see on the factory floor, drawn to one canvas in cell units.
-import { COLORS, TUNE } from './config.js?v=2';
-import { KIND } from './world.js?v=2';
-import { makeRng } from './rng.js?v=2';
+import { COLORS, TUNE } from './config.js?v=3';
+import { KIND } from './world.js?v=3';
+import { makeRng } from './rng.js?v=3';
 
 const INK = '#3f4654';
 const PAPER = '#ffffff';
@@ -11,6 +11,7 @@ const ROAD = '#ffffff';
 const ROAD_EDGE = 'rgba(63,70,84,.10)';
 const ALARM = '#ec5a5a';
 const BUILDING = 1.34; // cells across
+const MERGE_TRIM = 0.38; // how far short of a junction the flow dashes stop
 
 const ease = (k) => 1 - Math.pow(1 - k, 3);
 const backOut = (k) => 1 + 2.4 * Math.pow(k - 1, 3) + 1.4 * Math.pow(k - 1, 2);
@@ -92,11 +93,11 @@ export class Renderer {
     for (const belt of this.world.belts) this.beltShadow(belt);
     for (const belt of this.world.belts) this.beltBody(belt, t);
     for (const belt of this.world.belts) this.beltBridges(belt);
-    this.drawMerges();
     if (ui.draft) this.drawDraft(ui.draft, t);
     for (const belt of this.world.belts) this.drawItems(belt);
     for (const b of this.world.buildings) this.drawBuilding(b, sim, t, ui);
     if (ui.placing && ui.cell) this.drawGhost(ui.placing, ui.cell, ui.canPlace, t);
+    if (ui.hold?.building && ui.hold.progress > 0.04) this.drawHold(ui.hold.building, ui.hold.progress);
 
     ctx.restore();
     this.noShadow();
@@ -143,6 +144,22 @@ export class Renderer {
 
   // ---- belts ----
 
+  // The white surface of a joining belt runs right into the lane, so the two
+  // fuse into a T or an L. Only the flow dashes stop short, which keeps the
+  // junction clean instead of crossing one dashed line over another.
+  dashPts(belt) {
+    if (!belt.feed || belt.pts.length < 2) return belt.pts;
+    const pts = belt.pts.slice();
+    const last = pts.at(-1);
+    const prev = pts.at(-2);
+    const dx = last.x - prev.x;
+    const dy = last.y - prev.y;
+    const dist = Math.hypot(dx, dy) || 1;
+    const back = Math.min(MERGE_TRIM, dist * 0.9);
+    pts[pts.length - 1] = { x: last.x - (dx / dist) * back, y: last.y - (dy / dist) * back };
+    return pts;
+  }
+
   tracePath(pts, skipLast = 0) {
     const { ctx } = this;
     ctx.beginPath();
@@ -172,7 +189,7 @@ export class Renderer {
     ctx.stroke();
 
     // Dashes crawling towards the destination: the belt's direction, at a glance.
-    this.tracePath(belt.pts);
+    this.tracePath(this.dashPts(belt));
     ctx.setLineDash([0.22, 0.3]);
     ctx.lineDashOffset = -t * this.world.speed * 0.5;
     ctx.strokeStyle = 'rgba(63,70,84,.17)';
@@ -216,22 +233,6 @@ export class Renderer {
         ctx.lineTo(cx + dx * span + nx * side, cy + dy * span + ny * side);
         ctx.stroke();
       }
-    }
-  }
-
-  // A collar where one belt joins another, so a T junction reads as deliberate.
-  drawMerges() {
-    const { ctx } = this;
-    for (const belt of this.world.belts) {
-      if (!belt.feed) continue;
-      const join = belt.pts.at(-1);
-      ctx.fillStyle = ROAD;
-      ctx.strokeStyle = 'rgba(63,70,84,.5)';
-      ctx.lineWidth = 0.07;
-      ctx.beginPath();
-      ctx.arc(join.x, join.y, 0.17, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.stroke();
     }
   }
 
@@ -523,6 +524,24 @@ export class Renderer {
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
     ctx.fillText('!', cx + half + 0.1, cy - half - 0.07);
+  }
+
+  // Press and hold: a ring closing around a machine until it can be picked up.
+  drawHold(b, progress) {
+    const { ctx } = this;
+    const cx = b.x + 0.5;
+    const cy = b.y + 0.5;
+    const r = BUILDING / 2 + 0.26;
+    ctx.strokeStyle = 'rgba(63,70,84,.16)';
+    ctx.lineWidth = 0.12;
+    ctx.beginPath();
+    ctx.arc(cx, cy, r, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.strokeStyle = progress >= 1 ? '#60bd81' : INK;
+    ctx.lineWidth = 0.14;
+    ctx.beginPath();
+    ctx.arc(cx, cy, r, -Math.PI / 2, -Math.PI / 2 + progress * Math.PI * 2);
+    ctx.stroke();
   }
 
   // The machine you have just bought, following the cursor until you drop it.

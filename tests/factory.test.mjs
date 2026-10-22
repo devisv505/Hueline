@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { mix, findRecipe, TUNE, GOODS, TECHS, techCost, creditsFor } from '../js/config.js';
-import { World, KIND, seedWorld, createDraft, draftTo, commitDraft, draftCost, makeableColors, canPlaceAt, mergeTargetAt, inboundBelts } from '../js/world.js';
+import { World, KIND, seedWorld, createDraft, draftTo, commitDraft, draftCost, makeableColors, canPlaceAt, canManage, mergeTargetAt, inboundBelts } from '../js/world.js';
 import { Sim } from '../js/sim.js';
 
 const connect = (world, from, to) => {
@@ -477,4 +477,70 @@ test('a lane that merges in still counts as feeding the machine it reaches', () 
   connect(world, find(world, KIND.DEPOSIT, 'yellow'), main.cells[5]);
   assert.equal(world.beltsTo(mixer).length, 1, 'only one belt actually ends on the mixer');
   assert.equal(inboundBelts(world, mixer).length, 2, 'but two lines feed it');
+});
+
+// ---- picking a machine up ----
+
+test('you keep your machines, but shops are not yours to move', () => {
+  const world = seedWorld(new World(8));
+  assert.equal(canManage(find(world, KIND.MIXER)), true);
+  assert.equal(canManage(find(world, KIND.DEPOSIT, 'blue')), true);
+  assert.equal(canManage(world.addBuilding(KIND.SPLITTER, 1, 1)), true);
+  assert.equal(canManage(find(world, KIND.DEPOT)), false, 'demand arrives on its own');
+});
+
+test('a machine in hand does not block its own landing spot', () => {
+  const world = seedWorld(new World(8));
+  const mixer = find(world, KIND.MIXER);
+  const blue = find(world, KIND.DEPOSIT, 'blue');
+
+  assert.equal(canPlaceAt(world, mixer.x, mixer.y), false, 'occupied for anything else');
+  assert.equal(canPlaceAt(world, mixer.x, mixer.y, mixer), true, 'but it may be put back');
+  assert.equal(canPlaceAt(world, mixer.x + 1, mixer.y, mixer), true, 'and nudged one over');
+  assert.equal(canPlaceAt(world, blue.x, blue.y, mixer), false, 'someone else still blocks');
+  assert.equal(canPlaceAt(world, blue.x + 1, blue.y, mixer), false, 'as does their elbow room');
+});
+
+test("a machine's own belt does not block it either, since that belt is going", () => {
+  const world = seedWorld(new World(8));
+  const mixer = find(world, KIND.MIXER);
+  const blue = find(world, KIND.DEPOSIT, 'blue');
+  const belt = connect(world, blue, mixer);
+  const onIts = belt.cells[belt.cells.length - 2]; // the cell its own lane runs through
+
+  assert.equal(canPlaceAt(world, onIts.x, onIts.y), false, 'a running lane is in the way');
+  assert.equal(canPlaceAt(world, onIts.x, onIts.y, mixer), true, 'but moving the mixer removes that lane anyway');
+
+  // Somebody else's lane is still a lane.
+  const other = connect(world, blue, world.addBuilding(KIND.MIXER, mixer.x, mixer.y + 4));
+  const theirs = other.cells[2];
+  assert.equal(canPlaceAt(world, theirs.x, theirs.y, mixer), false, 'not onto a lane that stays');
+});
+
+test('taking a machine away takes its belts and hands the tiles back', () => {
+  const world = seedWorld(new World(8));
+  const before = world.stock.belts;
+  const mixer = find(world, KIND.MIXER);
+  connect(world, find(world, KIND.DEPOSIT, 'blue'), mixer);
+  connect(world, mixer, find(world, KIND.DEPOT));
+  assert.equal(world.belts.length, 2);
+  assert.ok(world.stock.belts < before);
+
+  world.removeBuilding(mixer);
+  assert.equal(world.belts.length, 0, 'its lines went with it');
+  assert.equal(world.stock.belts, before, 'and the tiles came back');
+  assert.equal(world.buildings.includes(mixer), false);
+});
+
+test('a feeder waits at the kerb instead of standing in the lane', () => {
+  const world = laneWorld();
+  const main = connect(world, find(world, KIND.DEPOSIT, 'blue'), find(world, KIND.MIXER));
+  const feeder = connect(world, find(world, KIND.DEPOSIT, 'yellow'), main.cells[5]);
+  const sim = new Sim(world);
+  for (let i = 0; i < 60 * 60; i++) {
+    sim.tick(1 / 60);
+    for (const item of feeder.items) {
+      assert.ok(item.d <= feeder.len - TUNE.mergeStop + 1e-6, `a waiting item reached the junction (d ${item.d.toFixed(2)} of ${feeder.len})`);
+    }
+  }
 });
