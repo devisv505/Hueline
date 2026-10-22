@@ -1,9 +1,10 @@
 // Drawing belts with a finger or a mouse: press a producer, drag, release on a
 // machine. The path grows cell by cell under the cursor and can be walked back.
-import { canStartFrom, createDraft, draftTo, commitDraft, draftCost } from './world.js?v=2';
-import { sfx } from './audio.js?v=2';
+import { canStartFrom, canManage, createDraft, draftTo, commitDraft, draftCost } from './world.js?v=3';
+import { sfx } from './audio.js?v=3';
 
 const TAP = 7; // px of travel still counted as a tap
+const HOLD = 650; // ms of stillness before a machine can be picked up
 
 const REASONS = {
   edge: 'The belt cannot leave the floor',
@@ -30,6 +31,10 @@ export class Controls {
     this.hover = null;
     this.placing = null; // a machine bought from the store, waiting to be dropped
     this.cell = null; // cell under the pointer, for the placement ghost
+    this.holdOn = null; // machine being pressed, once the ring starts filling
+    this.holdAt = 0;
+    this.holdTimer = 0;
+    this.swallowUp = false; // the release that ends a pick-up is not a drop
     this.locked = false;
     this.pointer = null;
     this.start = null;
@@ -97,6 +102,13 @@ export class Controls {
 
     const building = this.world.buildingAt(cell.x, cell.y);
     this.tapTarget = building ?? this.beltUnder(cell);
+    // Holding still on your own machine picks it up; dragging draws a belt, so
+    // the two only part ways once the pointer moves or the ring fills.
+    if (building && canManage(building)) {
+      this.holdOn = building;
+      this.holdAt = performance.now();
+      this.holdTimer = setTimeout(() => this.finishHold(), HOLD);
+    }
     if (building && canStartFrom(building)) {
       this.draft = createDraft(this.world, building);
       this.lastLen = 1;
@@ -114,6 +126,7 @@ export class Controls {
     }
     if (e.pointerId !== this.pointer) return;
     this.moved = Math.max(this.moved, Math.hypot(e.clientX - this.start.x, e.clientY - this.start.y));
+    if (this.moved > TAP) this.cancelHold();
     if (!this.draft) return;
 
     const cell = this.cellOf(e);
@@ -133,6 +146,13 @@ export class Controls {
 
   up(e) {
     if (e.pointerId !== this.pointer) return;
+    // Letting go of the press that lifted a machine must not immediately put it
+    // back down, or the bar's Remove button could never be reached.
+    if (this.swallowUp) {
+      this.swallowUp = false;
+      this.finish();
+      return;
+    }
     if (this.placing) {
       const cell = this.cellOf(e);
       this.finish();
@@ -168,7 +188,31 @@ export class Controls {
     this.finish();
   }
 
+  // 0 to 1 while a machine is being pressed, for the ring the renderer draws.
+  holdProgress() {
+    if (!this.holdOn) return 0;
+    return Math.min(1, (performance.now() - this.holdAt) / HOLD);
+  }
+
+  cancelHold() {
+    clearTimeout(this.holdTimer);
+    this.holdOn = null;
+    this.holdTimer = 0;
+  }
+
+  finishHold() {
+    const building = this.holdOn;
+    this.cancelHold();
+    if (!building) return;
+    this.draft = null; // the press was a pick-up, not the start of a belt
+    this.tapTarget = null;
+    this.swallowUp = true;
+    this.hooks.onDraft?.(null);
+    this.hooks.onHold?.(building);
+  }
+
   finish() {
+    this.cancelHold();
     if (this.pointer !== null && this.canvas.hasPointerCapture?.(this.pointer)) {
       this.canvas.releasePointerCapture(this.pointer);
     }

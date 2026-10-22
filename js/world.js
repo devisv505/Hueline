@@ -1,7 +1,7 @@
 // The factory floor: buildings on a grid, belts drawn between them, and the
 // rules that decide where a belt may go. No DOM here, so it is unit testable.
-import { COLORS, TUNE } from './config.js?v=2';
-import { makeRng } from './rng.js?v=2';
+import { COLORS, TUNE } from './config.js?v=3';
+import { makeRng } from './rng.js?v=3';
 
 const key = (x, y) => `${x},${y}`;
 
@@ -182,11 +182,18 @@ export function mergeTargetAt(world, x, y) {
 
 // Where the player may drop a machine they have bought: empty floor, clear of
 // the belts already running, with a cell of air between it and its neighbours.
-export function canPlaceAt(world, x, y) {
+// `ignore` is the machine being picked up and moved, which should not block
+// its own new spot or the cells around it.
+export function canPlaceAt(world, x, y, ignore = null) {
   if (!world.inside(x, y)) return false;
-  if (world.buildingAt(x, y) || world.beltsAt(x, y).length) return false;
-  return !world.buildings.some((b) => Math.max(Math.abs(b.x - x), Math.abs(b.y - y)) < 2);
+  const sitting = world.buildingAt(x, y);
+  if (sitting && sitting !== ignore) return false;
+  if (world.beltsAt(x, y).some((e) => e.belt.from !== ignore?.id && e.belt.to !== ignore?.id)) return false;
+  return !world.buildings.some((b) => b !== ignore && Math.max(Math.abs(b.x - x), Math.abs(b.y - y)) < 2);
 }
+
+// Shops arrive on their own and are demand, not plant: you keep the machines.
+export const canManage = (b) => b.kind !== KIND.DEPOT;
 
 export function createDraft(world, building) {
   return {

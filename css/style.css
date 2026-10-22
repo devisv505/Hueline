@@ -515,6 +515,14 @@ button {
   transform: scale(0.95);
 }
 
+.chip-btn.danger {
+  background: var(--red);
+}
+
+.chip-btn[hidden] {
+  display: none;
+}
+
 /* ---- store and research ---- */
 
 .choices {

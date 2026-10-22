@@ -1,11 +1,11 @@
 // Screens, upgrades and the frame loop that ties the factory together.
-import { COLORS, TUNE, FACTORY_NAMES, PRIMARIES, GOODS, TECHS, techCost } from './config.js?v=2';
-import { World, KIND, seedWorld, canPlaceAt, makeableColors, inboundBelts, createDraft, draftTo, commitDraft } from './world.js?v=2';
-import { Sim } from './sim.js?v=2';
-import { Renderer } from './render.js?v=2';
-import { Controls } from './input.js?v=2';
-import { unlockAudio, setSoundEnabled, sfx } from './audio.js?v=2';
-import { burst, ring, floater, toast, confetti, shake, pop } from './fx.js?v=2';
+import { COLORS, TUNE, FACTORY_NAMES, PRIMARIES, GOODS, TECHS, techCost } from './config.js?v=3';
+import { World, KIND, seedWorld, canPlaceAt, canManage, makeableColors, inboundBelts, createDraft, draftTo, commitDraft } from './world.js?v=3';
+import { Sim } from './sim.js?v=3';
+import { Renderer } from './render.js?v=3';
+import { Controls } from './input.js?v=3';
+import { unlockAudio, setSoundEnabled, sfx } from './audio.js?v=3';
+import { burst, ring, floater, toast, confetti, shake, pop } from './fx.js?v=3';
 
 const $ = (id) => document.getElementById(id);
 const SAVE_KEY = 'hueline.v1';
@@ -47,14 +47,13 @@ function at(b) {
 }
 
 const hooks = {
-  onDeliver(b, color, total, paid) {
+  onDeliver(b, color, _total, paid) {
     const p = at(b);
     burst(p.x, p.y, color, 10);
     floater(p.x, p.y - 10, `+${paid}`, COLORS[color].deep);
     sfx.deliver();
     bumpScore();
     showStock();
-    if (total % 10 === 0) confetti(24);
     advanceCoach();
   },
   onCraft(b, color) {
@@ -147,6 +146,7 @@ const controlHooks = {
     showStock();
   },
   onPlace: (cell) => placeAt(cell),
+  onHold: (building) => pickUp(building),
   onTap(target) {
     if (target.kind) return tapBuilding(target);
     // Pulling a belt up refunds its tiles and bridges.
@@ -354,14 +354,29 @@ function openTech() {
 
 let placing = null;
 const PLACE_NAMES = { mixer: 'mixer', splitter: 'splitter', deposit: 'deposit' };
+const machineName = (what) =>
+  what.color ? `${COLORS[what.color].name} ${PLACE_NAMES[what.kind]}` : PLACE_NAMES[what.kind];
 
 function startPlacing(what, cost) {
   placing = { ...what, cost };
   controls.setPlacing(placing);
-  const name = what.color ? `${COLORS[what.color].name} ${PLACE_NAMES[what.kind]}` : PLACE_NAMES[what.kind];
-  $('placing-text').textContent = `Tap an empty spot for your ${name}`;
+  $('placing-text').textContent = `Tap an empty spot for your ${machineName(what)}`;
+  $('btn-scrap').hidden = true;
   $('placing-bar').hidden = false;
   $('coach').hidden = true;
+  resume();
+}
+
+// Held long enough: the machine comes up in hand, to drop somewhere else or scrap.
+function pickUp(building) {
+  if (!canManage(building) || placing) return;
+  placing = { kind: building.kind, color: building.color, cost: 0, moving: building };
+  controls.setPlacing(placing);
+  $('placing-text').textContent = `Moving the ${machineName(placing)} — tap a new spot`;
+  $('btn-scrap').hidden = false;
+  $('placing-bar').hidden = false;
+  $('coach').hidden = true;
+  sfx.grab();
   resume();
 }
 
@@ -369,11 +384,26 @@ function stopPlacing() {
   placing = null;
   controls.setPlacing(null);
   $('placing-bar').hidden = true;
+  $('btn-scrap').hidden = true;
+}
+
+// Scrapping gives back the belt tiles that ran to it, but none of the credits.
+function scrapHeld() {
+  const victim = placing?.moving;
+  if (!victim) return;
+  const p = at(victim);
+  world.removeBuilding(victim);
+  burst(p.x, p.y, 'slate', 12);
+  sfx.erase();
+  toast(`${machineName(placing)} scrapped — no refund`, { color: '#ec5a5a', icon: '#i-alarm' });
+  stopPlacing();
+  showStock();
+  advanceCoach();
 }
 
 function placeAt(cell) {
   if (!placing) return;
-  if (!canPlaceAt(world, cell.x, cell.y)) {
+  if (!canPlaceAt(world, cell.x, cell.y, placing.moving ?? null)) {
     sfx.nope();
     showCoach('Not enough room there — machines need a cell of air', 1600);
     return;
@@ -384,6 +414,8 @@ function placeAt(cell) {
     return;
   }
   spend(placing.cost);
+  // Moving one takes its belts with it: they would run to the wrong place now.
+  if (placing.moving) world.removeBuilding(placing.moving);
   const b = world.addBuilding(placing.kind, cell.x, cell.y, placing.color ? { color: placing.color } : {});
   b.born = sim.time;
   const p = at(b);
@@ -391,6 +423,7 @@ function placeAt(cell) {
   burst(p.x, p.y, placing.color ?? 'slate', 8);
   sfx.lay();
   stopPlacing();
+  showStock();
   advanceCoach();
 }
 
@@ -502,6 +535,11 @@ $('btn-cancel-place').addEventListener('click', () => {
   stopPlacing();
 });
 
+$('btn-scrap').addEventListener('click', () => {
+  sfx.click();
+  scrapHeld();
+});
+
 $('btn-speed').addEventListener('click', () => {
   speedStep = (speedStep + 1) % SPEEDS.length;
   showSpeed();
@@ -553,7 +591,8 @@ function frame(now) {
       hover: controls.hover,
       placing,
       cell,
-      canPlace: Boolean(placing && cell && canPlaceAt(world, cell.x, cell.y)),
+      canPlace: Boolean(placing && cell && canPlaceAt(world, cell.x, cell.y, placing.moving ?? null)),
+      hold: { building: controls.holdOn, progress: controls.holdProgress() },
     },
     now / 1000
   );
@@ -578,6 +617,9 @@ if (new URLSearchParams(location.search).has('test')) {
     },
     get renderer() {
       return renderer;
+    },
+    get controls() {
+      return controls;
     },
     boot,
     resume,
