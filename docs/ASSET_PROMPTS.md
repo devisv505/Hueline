@@ -168,12 +168,17 @@ Spell "HUELINE" exactly, as one word, no other text, no tagline, no watermark.
 Background: fully transparent PNG (fallback: solid flat #FF00FF magenta).
 ```
 
-### 03 · `app_icon.png`: the game icon (1024×1024, opaque)
+### 03 · `app_icon.png`: the game icon (1024×1024, opaque) — ✅ done
 
 The tab icon and home-screen icon. It has one job: say *colour goes in, a new
 colour comes out* at 32 pixels. That rules out the machine, the grid and
 anything with a thin line in it — at tab size only the coloured dots survive, so
 the whole composition is built around three of them.
+
+Generated and kept at `assets/raw/app_icon.webp`, resized into
+`assets/icons/icon-{512,180,32,16}.png` and linked from `index.html`. The 32px
+check below was run on it before it went in. Regenerate against this prompt if
+you want a different one.
 
 Attach `docs/reference/factory.webp`. Ask for 1024×1024.
 
@@ -222,9 +227,11 @@ read as a line rather than a smudge. If the dots merge into each other or the
 junction disappears, the shapes are too small — ask again with "larger circles,
 fewer elements, more empty space".
 
-**Sizes to export** from the 1024 master: `icon-180.png` for the home screen,
-`icon-32.png` and `icon-16.png` for the tab. Drop them in `assets/icons/` and
-they get linked from `index.html`.
+**Sizes to export** from the master: `icon-512.png`, `icon-180.png` for the home
+screen, and `icon-32.png` / `icon-16.png` for the tab, all into `assets/icons/`.
+PNG rather than WebP, since the tab icon is the one place where older browsers
+still bite. `tools/bump_version.py` stamps the icon links along with everything
+else, so a replacement is not served from cache.
 
 ### 04 · `machines.png`: machine housings, optional (1024×1024)
 

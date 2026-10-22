@@ -19,6 +19,7 @@ TARGETS = [ROOT / "index.html", *sorted((ROOT / "js").glob("*.js"))]
 # (file pattern, the part to keep) — each captures an optional existing ?v=.
 RULES = [
     (re.compile(r"""(href="css/style\.css)(\?v=\d+)?(")"""), None),
+    (re.compile(r"""(href="assets/icons/icon-\d+\.png)(\?v=\d+)?(")"""), None),
     (re.compile(r"""(src="js/main\.js)(\?v=\d+)?(")"""), None),
     (re.compile(r"""(from '\./[A-Za-z0-9_-]+\.js)(\?v=\d+)?(')"""), None),
 ]

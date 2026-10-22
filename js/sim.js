@@ -1,7 +1,7 @@
 // The factory running itself: ore drops, items ride belts, mixers combine them
 // and depots get their orders. Pure logic, driven by `tick(dt)` in seconds.
-import { TUNE, findRecipe, creditsFor } from './config.js?v=4';
-import { KIND, freeSpot, nextArrival } from './world.js?v=4';
+import { TUNE, findRecipe, creditsFor } from './config.js?v=5';
+import { KIND, freeSpot, nextArrival } from './world.js?v=5';
 
 export class Sim {
   constructor(world, hooks = {}) {
