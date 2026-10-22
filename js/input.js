@@ -12,6 +12,7 @@ const REASONS = {
   duplicate: 'These two are already connected',
   loop: 'A belt cannot run back over itself',
   overlap: 'Belts cannot share a lane',
+  occupied: 'Join a belt mid-lane, not on a bridge or where one already merges',
   corner: 'No room to bridge over a corner',
   busy: 'Too many belts in that square',
   'bridge-turn': 'A belt has to stay straight across a bridge',
@@ -145,7 +146,7 @@ export class Controls {
     // A finger leaves no cursor behind, so drop the hover ring with it.
     if (e.pointerType !== 'mouse') this.setHover(null);
 
-    if (draft && draft.end) {
+    if (draft && (draft.end || draft.endFeed)) {
       const cost = draftCost(draft);
       const belt = commitDraft(this.world, draft);
       if (belt) {

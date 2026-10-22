@@ -16,7 +16,7 @@ once it outgrew being a prototype; the history came with it.
 | **Mixer** | Holds up to six items and combines any two colours that react. |
 | **Splitter** | One belt in, two or more out, fed in turn. Researched, then bought. |
 | **Shop** | Wants one colour. Every matching delivery is a point. |
-| **Belt** | A one-way lane from a deposit or mixer into a mixer or shop. |
+| **Belt** | A one-way lane from a deposit or mixer into a mixer, shop, or another belt. |
 | **Bridge** | Spent where one belt has to hop another. You start with two. |
 
 Mixing is set union over the three primaries, so the recipe table never has to
@@ -38,6 +38,9 @@ Fern do nothing, because Fern already contains blue.
    Pull a belt up by tapping it and the tiles come back.
 2. **Belts cannot cross.** Where a route has to hop another belt it spends a
    bridge, and a belt has to run straight across one — no turning up there.
+   They *can* join, though: drop a belt onto a running lane and its load merges
+   in, so two sources share one line. Splitting a line still takes a splitter —
+   merging is free, branching is not.
 3. **A mixer fails if its input buffer overflows.** Six of one colour with no
    partner will never clear itself, so the machine sounds an alarm and burns
    out fifteen seconds later, which ends the run. Tap a flashing machine to
@@ -65,7 +68,9 @@ The **lab** sells research, which is permanent:
 | Reinforced machines | An overflowing machine holds on half as long again |
 
 Only shops arrive on their own now, and only ever asking for a colour the floor
-can already make. Everything that supplies them, you buy and place yourself.
+can already make. No more than two will ever want the same colour: once every
+makeable colour has its shops, arrivals stop until you buy an ore deposit that
+opens up new recipes. Everything that supplies them, you buy and place yourself.
 
 ## Drawing a belt
 

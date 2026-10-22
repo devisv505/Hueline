@@ -15,6 +15,7 @@ export class Sim {
     this.spawnGap = TUNE.firstSpawn;
     this.over = false;
     this.relaxed = false;
+    this.stalled = false;
     // Stagger the opening floor so it pops in when the run starts.
     this.world.buildings.forEach((b, i) => (b.born = 0.05 + i * 0.09));
   }
@@ -60,13 +61,38 @@ export class Sim {
     }
     const head = belt.items[0];
     if (!head || head.d < belt.len - 1e-4) return;
-    const target = this.world.buildings.find((b) => b.id === belt.to);
-    if (target && this.deliver(target, head.color)) {
+    const landed = belt.feed ? this.merge(belt.feed, head.color) : this.handOff(belt.to, head.color);
+    if (landed) {
       belt.items.shift();
       belt.color = head.color;
     } else {
       head.stuck = true;
     }
+  }
+
+  handOff(buildingId, color) {
+    const target = this.world.buildings.find((b) => b.id === buildingId);
+    return Boolean(target) && this.deliver(target, color);
+  }
+
+  // Slip an item into another belt's lane, if the traffic there has left a gap.
+  merge(feed, color) {
+    const target = this.world.beltById(feed.beltId);
+    if (!target) return false;
+    const d = Math.min(feed.index, target.len);
+    let at = target.items.length; // items run head first, so d descends
+    for (let i = 0; i < target.items.length; i++) {
+      if (target.items[i].d < d) {
+        at = i;
+        break;
+      }
+    }
+    const ahead = target.items[at - 1];
+    const behind = target.items[at];
+    if (ahead && ahead.d - d < TUNE.itemGap) return false;
+    if (behind && d - behind.d < TUNE.itemGap) return false;
+    target.items.splice(at, 0, { color, d, stuck: false });
+    return true;
   }
 
   push(belt, color) {
@@ -200,7 +226,16 @@ export class Sim {
     const spot = freeSpot(this.world, this.world.rng);
     if (!spot) return;
     const plan = nextArrival(this.world, this.world.rng);
-    if (!plan) return;
+    if (!plan) {
+      // Every colour the floor can make already has its shops. Say so once;
+      // the way out is a new ore deposit from the store.
+      if (!this.stalled) {
+        this.stalled = true;
+        this.hooks.onStalled?.();
+      }
+      return;
+    }
+    this.stalled = false;
     const b = this.world.addBuilding(plan.kind, spot.x, spot.y, plan.color ? { color: plan.color } : {});
     b.born = this.time;
     this.hooks.onSpawn?.(b);

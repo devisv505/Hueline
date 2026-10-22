@@ -70,13 +70,16 @@ export class World {
     return this.belts.filter((belt) => belt.to === b.id);
   }
 
-  addBelt(cells, bridges) {
+  addBelt(cells, bridges, feed = null) {
     const from = this.buildingAt(cells[0].x, cells[0].y);
     const to = this.buildingAt(cells.at(-1).x, cells.at(-1).y);
     const belt = {
       id: this.nextId++,
       from: from.id,
-      to: to.id,
+      to: to?.id ?? null,
+      // Set when the belt ends on another belt instead of a machine: items are
+      // slipped into that lane at `index` when there is a gap.
+      feed: feed ? { beltId: feed.belt.id, index: feed.index } : null,
       color: null, // last colour carried, for a subtle tint
       cells,
       pts: cells.map((c) => ({ x: c.x + 0.5, y: c.y + 0.5 })),
@@ -96,10 +99,20 @@ export class World {
     return belt;
   }
 
+  beltById(id) {
+    return this.belts.find((b) => b.id === id) ?? null;
+  }
+
+  // Belts feeding into `belt`, which have nowhere to go once it is gone.
+  feeders(belt) {
+    return this.belts.filter((b) => b.feed?.beltId === belt.id);
+  }
+
   removeBelt(belt) {
     const i = this.belts.indexOf(belt);
     if (i < 0) return;
     this.belts.splice(i, 1);
+    this.feeders(belt).forEach((b) => this.removeBelt(b));
     for (let j = 1; j < belt.cells.length - 1; j++) {
       const k = key(belt.cells[j].x, belt.cells[j].y);
       const list = this.cellBelts.get(k)?.filter((e) => e.belt !== belt) ?? [];
@@ -141,6 +154,17 @@ export class World {
 export const canStartFrom = (b) => b.kind !== KIND.DEPOT;
 export const canEndAt = (b) => b.kind !== KIND.DEPOSIT;
 
+// A belt may join another belt mid-lane. Not on a bridge — that cell is an
+// overpass, with no way down — and not where something already merges in.
+export function mergeTargetAt(world, x, y) {
+  const here = world.beltsAt(x, y);
+  if (here.length !== 1) return null;
+  const { belt, index } = here[0];
+  if (belt.bridges.has(`${x},${y}`)) return null;
+  if (world.belts.some((b) => b.feed?.beltId === belt.id && b.feed.index === index)) return null;
+  return { belt, index };
+}
+
 // Where the player may drop a machine they have bought: empty floor, clear of
 // the belts already running, with a cell of air between it and its neighbours.
 export function canPlaceAt(world, x, y) {
@@ -155,12 +179,13 @@ export function createDraft(world, building) {
     cells: [{ x: building.x, y: building.y }],
     bridges: [],
     end: null,
+    endFeed: null, // set when the belt lands on another belt instead of a machine
     trail: new Set(), // cells the cursor has swept, so the route follows your hand
     blocked: null, // why the route stopped, for the cursor hint
   };
 }
 
-const beltCost = (draft) => Math.max(0, draft.cells.length - (draft.end ? 2 : 1));
+const beltCost = (draft) => Math.max(0, draft.cells.length - (draft.end || draft.endFeed ? 2 : 1));
 
 export function draftCost(draft) {
   return { belts: beltCost(draft), bridges: draft.bridges.length };
@@ -180,7 +205,7 @@ const CROWD_COST = 0.3; // belts would rather not squeeze past a building
 const crowded = (world, cell) => DIRS.some((d) => world.buildingAt(cell.x + d.x, cell.y + d.y));
 
 // Can a belt enter this cell heading `dir`? `dest` is the only building it may land on.
-function cellRule(world, cell, dir, dest) {
+function cellRule(world, cell, dir, dest, merge) {
   if (!world.inside(cell.x, cell.y)) return { blocked: true };
 
   const building = world.buildingAt(cell.x, cell.y);
@@ -188,6 +213,8 @@ function cellRule(world, cell, dir, dest) {
 
   const here = world.beltsAt(cell.x, cell.y);
   if (!here.length) return {};
+  // The one belt cell a route may stop on is the lane it was aimed at.
+  if (merge && cell.x === merge.x && cell.y === merge.y) return { terminal: true };
   if (here.length > 1) return { blocked: true };
   const other = world.axisAt(here[0].belt, here[0].index);
   if (other === 'turn' || other === 'end') return { blocked: true }; // nothing to bridge over
@@ -239,6 +266,7 @@ class Heap {
 // and so a belt on a bridge is made to carry straight on.
 function route(world, from, to, trail, allowBridges) {
   const dest = world.buildingAt(to.x, to.y);
+  const merge = !dest && mergeTargetAt(world, to.x, to.y) ? to : null;
   const h = (x, y) => (Math.abs(x - to.x) + Math.abs(y - to.y)) * TRAIL_BONUS;
   const open = new Heap();
   const seen = new Map();
@@ -257,7 +285,7 @@ function route(world, from, to, trail, allowBridges) {
         cells.unshift(s.cell);
         if (s.bridge) bridges.unshift(s.cell);
       }
-      return { cells, bridges, terminal: Boolean(dest) };
+      return { cells, bridges, terminal: Boolean(dest || merge) };
     }
 
     for (let d = 0; d < 4; d++) {
@@ -265,7 +293,7 @@ function route(world, from, to, trail, allowBridges) {
       if (state.bridge && state.dir !== d) continue;
       const dir = DIRS[d];
       const cell = { x: state.cell.x + dir.x, y: state.cell.y + dir.y };
-      const rule = cellRule(world, cell, dir, dest);
+      const rule = cellRule(world, cell, dir, dest, merge);
       if (rule.blocked) continue;
       if (rule.bridge && !allowBridges) continue;
       if (rule.terminal && (cell.x !== to.x || cell.y !== to.y)) continue;
@@ -298,6 +326,7 @@ export function draftTo(world, draft, target) {
     draft.cells = [from];
     draft.bridges = [];
     draft.end = null;
+    draft.endFeed = null;
     draft.blocked = null;
     return draft;
   }
@@ -307,6 +336,8 @@ export function draftTo(world, draft, target) {
     if (!canEndAt(building)) return fail(draft, 'kind');
     if (world.belts.some((b) => b.from === draft.from.id && b.to === building.id)) return fail(draft, 'duplicate');
   }
+  const merge = building ? null : mergeTargetAt(world, target.x, target.y);
+  if (!building && world.beltsAt(target.x, target.y).length && !merge) return fail(draft, 'occupied');
 
   let found = route(world, from, target, draft.trail, world.stock.bridges > 0);
   if (found && found.bridges.length > world.stock.bridges) {
@@ -321,6 +352,7 @@ export function draftTo(world, draft, target) {
     draft.cells = found.cells.slice(0, world.stock.belts + 1);
     draft.bridges = found.bridges.filter((c) => draft.cells.some((p) => p.x === c.x && p.y === c.y));
     draft.end = null;
+    draft.endFeed = null;
     draft.blocked = 'no-belts';
     return draft;
   }
@@ -328,6 +360,7 @@ export function draftTo(world, draft, target) {
   draft.cells = found.cells;
   draft.bridges = found.bridges;
   draft.end = found.terminal ? building : null;
+  draft.endFeed = found.terminal && !building ? merge : null;
   return draft;
 }
 
@@ -347,12 +380,14 @@ function fewestBridges(found, world) {
 
 function fail(draft, why) {
   draft.blocked = why;
+  draft.end = null;
+  draft.endFeed = null;
   return draft;
 }
 
 export function commitDraft(world, draft) {
-  if (!draft.end || draft.cells.length < 2) return null;
-  return world.addBelt(draft.cells.map((c) => ({ ...c })), draft.bridges);
+  if ((!draft.end && !draft.endFeed) || draft.cells.length < 2) return null;
+  return world.addBelt(draft.cells.map((c) => ({ ...c })), draft.bridges, draft.endFeed);
 }
 
 // ---- starting layout and later arrivals ----
@@ -416,11 +451,19 @@ export function seedWorld(world) {
 // Only demand arrives on its own now — machines and deposits are bought — and a
 // new shop only ever asks for a colour the floor can already make.
 export function nextArrival(world, rng) {
-  const options = makeableColors(world);
+  const open = world.buildings.filter((b) => b.kind === KIND.DEPOT);
+  const wanted = (color) => open.filter((b) => b.color === color).length;
+
+  // Only colours the floor is not already saturated with. Without this the
+  // first makeable mix wins every roll and the map fills with one colour.
+  const options = makeableColors(world).filter((c) => wanted(c) < TUNE.sameColorCap);
   if (!options.length) return null;
-  const deep = options.filter((c) => COLORS[c].parts.length > 1);
-  const pool = deep.length && rng() < 0.75 ? deep : options;
-  const deepest = pool.filter((c) => COLORS[c].parts.length === 3);
-  const color = deepest.length && rng() < 0.3 ? rng.pick(deepest) : rng.pick(pool);
-  return { kind: KIND.DEPOT, color };
+
+  // Rarest first, so demand spreads instead of piling onto one shop colour,
+  // and lean towards the deeper recipes once the plant can handle them.
+  const fewest = Math.min(...options.map(wanted));
+  const rarest = options.filter((c) => wanted(c) === fewest);
+  const deep = rarest.filter((c) => COLORS[c].parts.length > 1);
+  const pool = deep.length && rng() < 0.8 ? deep : rarest;
+  return { kind: KIND.DEPOT, color: rng.pick(pool) };
 }
