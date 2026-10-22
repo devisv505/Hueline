@@ -80,6 +80,9 @@ const hooks = {
     sfx.arrive();
     if (b.kind === KIND.DEPOT) toast(`New shop wants ${COLORS[b.color].name}`, { color: COLORS[b.color].fill, icon: '#i-shop' });
   },
+  onStalled() {
+    toast('Every colour you can make has its shops — buy a new ore deposit to open up more', { color: '#ef7f9c', icon: '#i-ore' });
+  },
   onFail(b) {
     sfx.fail();
     shake($('app'));
@@ -174,7 +177,7 @@ function tapBuilding(b) {
 
 function showStock() {
   const draft = controls?.draft;
-  const spentBelts = draft ? Math.max(0, draft.cells.length - (draft.end ? 2 : 1)) : 0;
+  const spentBelts = draft ? Math.max(0, draft.cells.length - (draft.end || draft.endFeed ? 2 : 1)) : 0;
   const spentBridges = draft ? draft.bridges.length : 0;
   const belts = world.stock.belts - spentBelts;
   const bridges = world.stock.bridges - spentBridges;

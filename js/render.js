@@ -92,6 +92,7 @@ export class Renderer {
     for (const belt of this.world.belts) this.beltShadow(belt);
     for (const belt of this.world.belts) this.beltBody(belt, t);
     for (const belt of this.world.belts) this.beltBridges(belt);
+    this.drawMerges();
     if (ui.draft) this.drawDraft(ui.draft, t);
     for (const belt of this.world.belts) this.drawItems(belt);
     for (const b of this.world.buildings) this.drawBuilding(b, sim, t, ui);
@@ -218,6 +219,22 @@ export class Renderer {
     }
   }
 
+  // A collar where one belt joins another, so a T junction reads as deliberate.
+  drawMerges() {
+    const { ctx } = this;
+    for (const belt of this.world.belts) {
+      if (!belt.feed) continue;
+      const join = belt.pts.at(-1);
+      ctx.fillStyle = ROAD;
+      ctx.strokeStyle = 'rgba(63,70,84,.5)';
+      ctx.lineWidth = 0.07;
+      ctx.beginPath();
+      ctx.arc(join.x, join.y, 0.17, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+    }
+  }
+
   drawItems(belt) {
     const { ctx } = this;
     for (const item of belt.items) {
@@ -252,7 +269,7 @@ export class Renderer {
       this.tracePath(pts);
       ctx.setLineDash([0.3, 0.26]);
       ctx.lineDashOffset = -t * 2;
-      ctx.strokeStyle = draft.end ? 'rgba(96,189,129,.95)' : 'rgba(63,70,84,.35)';
+      ctx.strokeStyle = draft.end || draft.endFeed ? 'rgba(96,189,129,.95)' : 'rgba(63,70,84,.35)';
       ctx.lineWidth = 0.1;
       ctx.stroke();
       ctx.setLineDash([]);
@@ -268,7 +285,7 @@ export class Renderer {
 
     const tip = draft.cells.at(-1);
     const pulse = 0.3 + Math.sin(t * 9) * 0.04;
-    ctx.fillStyle = draft.end ? 'rgba(96,189,129,.9)' : draft.blocked ? 'rgba(236,90,90,.85)' : 'rgba(63,70,84,.5)';
+    ctx.fillStyle = draft.end || draft.endFeed ? 'rgba(96,189,129,.9)' : draft.blocked ? 'rgba(236,90,90,.85)' : 'rgba(63,70,84,.5)';
     ctx.beginPath();
     ctx.arc(tip.x + 0.5, tip.y + 0.5, pulse, 0, Math.PI * 2);
     ctx.fill();

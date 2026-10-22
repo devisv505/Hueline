@@ -62,9 +62,10 @@ export const TUNE = {
   startBelts: 46,
   startBridges: 2,
   startCredits: 6,
-  firstSpawn: 22, // seconds before the second wave of buildings
-  spawnDecay: 0.94,
-  minSpawn: 11,
+  firstSpawn: 32, // seconds before the second wave of buildings
+  spawnDecay: 0.97,
+  minSpawn: 20,
+  sameColorCap: 2, // shops wanting one colour, before the floor needs more variety
   maxBuildings: 20,
 };
 
