@@ -1,11 +1,11 @@
 // Screens, upgrades and the frame loop that ties the factory together.
-import { COLORS, TUNE, FACTORY_NAMES, PRIMARIES, GOODS, TECHS, techCost } from './config.js?v=4';
-import { World, KIND, seedWorld, canPlaceAt, canManage, makeableColors, inboundBelts, createDraft, draftTo, commitDraft } from './world.js?v=4';
-import { Sim } from './sim.js?v=4';
-import { Renderer } from './render.js?v=4';
-import { Controls } from './input.js?v=4';
-import { unlockAudio, setSoundEnabled, sfx } from './audio.js?v=4';
-import { burst, ring, floater, toast, confetti, shake, pop } from './fx.js?v=4';
+import { COLORS, TUNE, FACTORY_NAMES, PRIMARIES, GOODS, TECHS, techCost } from './config.js?v=5';
+import { World, KIND, seedWorld, canPlaceAt, canManage, makeableColors, inboundBelts, createDraft, draftTo, commitDraft } from './world.js?v=5';
+import { Sim } from './sim.js?v=5';
+import { Renderer } from './render.js?v=5';
+import { Controls } from './input.js?v=5';
+import { unlockAudio, setSoundEnabled, sfx } from './audio.js?v=5';
+import { burst, ring, floater, toast, confetti, shake, pop } from './fx.js?v=5';
 
 const $ = (id) => document.getElementById(id);
 const SAVE_KEY = 'hueline.v1';
@@ -78,6 +78,14 @@ const hooks = {
     ring(p.x, p.y, b.color ?? 'slate');
     sfx.arrive();
     if (b.kind === KIND.DEPOT) toast(`New shop wants ${COLORS[b.color].name}`, { color: COLORS[b.color].fill, icon: '#i-shop' });
+  },
+  onGiveUp(b) {
+    const p = at(b);
+    burst(p.x, p.y, b.color, 14);
+    floater(p.x, p.y - 10, 'closed', '#ec5a5a');
+    sfx.fail();
+    toast(`The ${COLORS[b.color].name} shop gave up waiting and closed`, { color: '#ec5a5a', icon: '#i-shop' });
+    showStock();
   },
   onStalled() {
     toast('Every colour you can make has its shops — buy a new ore deposit to open up more', { color: '#ef7f9c', icon: '#i-ore' });

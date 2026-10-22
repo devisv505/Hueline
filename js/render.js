@@ -1,7 +1,7 @@
 // Everything you see on the factory floor, drawn to one canvas in cell units.
-import { COLORS, TUNE } from './config.js?v=4';
-import { KIND } from './world.js?v=4';
-import { makeRng } from './rng.js?v=4';
+import { COLORS, TUNE } from './config.js?v=5';
+import { KIND } from './world.js?v=5';
+import { makeRng } from './rng.js?v=5';
 
 const INK = '#3f4654';
 const PAPER = '#ffffff';
@@ -351,13 +351,14 @@ export class Renderer {
     const cap = this.world.caps[b.kind];
     if (b.kind === KIND.MIXER) this.drawChips(b, cx, cy + half + 0.26, cap);
     if (b.kind === KIND.DEPOT) {
-      this.drawOrders(b, cx, cy - half - 0.3);
+      this.drawOrders(b, cx, cy - half - 0.3, b.patience / this.world.patienceFuse);
       if (b.buffer.length) this.drawChips(b, cx, cy + half + 0.26, cap);
     }
     if ((b.kind === KIND.DEPOSIT || b.kind === KIND.SPLITTER) && b.buffer.length) {
       this.drawChips(b, cx, cy + half + 0.26, cap);
     }
     if (b.jam > 0) this.drawAlarm(b, cx, cy, half, t);
+    else if (b.patience > 0) this.drawImpatience(b, cx, cy, half, t);
   }
 
   drawDeposit(b, half) {
@@ -491,17 +492,20 @@ export class Renderer {
     }
   }
 
-  drawOrders(b, cx, cy) {
+  // The dots are the shop's orders. They turn red as it runs out of patience.
+  drawOrders(b, cx, cy, impatience = 0) {
     const { ctx } = this;
     const c = COLORS[b.color];
-    const r = 0.13;
+    const urgent = Math.min(1, Math.max(0, impatience));
+    const fill = urgent > 0 ? mixHex(c.fill, ALARM, urgent) : c.fill;
+    const r = 0.13 * (1 + urgent * 0.25);
     const gap = 0.36;
     const total = (TUNE.demandCap - 1) * gap;
     for (let i = 0; i < TUNE.demandCap; i++) {
       const x = cx - total / 2 + i * gap;
       if (i < b.pending) {
         this.shadow('rgba(63,70,84,.22)', 3, 2);
-        ctx.fillStyle = c.fill;
+        ctx.fillStyle = fill;
         ctx.beginPath();
         ctx.arc(x, cy, r, 0, Math.PI * 2);
         ctx.fill();
@@ -514,6 +518,23 @@ export class Renderer {
         ctx.stroke();
       }
     }
+  }
+
+  // A shop losing patience: the same language as an overflow, a shade calmer.
+  drawImpatience(b, cx, cy, half, t) {
+    const { ctx } = this;
+    const k = Math.min(1, b.patience / this.world.patienceFuse);
+    const r = half + 0.28 + Math.sin(t * 5) * 0.03 * k;
+    ctx.strokeStyle = `rgba(236,90,90,${0.18 + k * 0.4})`;
+    ctx.lineWidth = 0.06;
+    ctx.beginPath();
+    ctx.arc(cx, cy, r, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.strokeStyle = ALARM;
+    ctx.lineWidth = 0.11;
+    ctx.beginPath();
+    ctx.arc(cx, cy, r, -Math.PI / 2, -Math.PI / 2 + k * Math.PI * 2);
+    ctx.stroke();
   }
 
   drawAlarm(b, cx, cy, half, t) {
@@ -590,6 +611,15 @@ export class Renderer {
     ctx.stroke();
     ctx.setLineDash([]);
   }
+}
+
+// Blend two hex colours, for a dot shading from its own colour towards alarm.
+function mixHex(from, to, k) {
+  const read = (hex) => [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16));
+  const a = read(from);
+  const b = read(to);
+  const mixed = a.map((v, i) => Math.round(v + (b[i] - v) * k));
+  return `rgb(${mixed.join(',')})`;
 }
 
 function roundRect(ctx, x, y, w, h, r) {

@@ -1,7 +1,7 @@
 // The factory floor: buildings on a grid, belts drawn between them, and the
 // rules that decide where a belt may go. No DOM here, so it is unit testable.
-import { COLORS, TUNE } from './config.js?v=4';
-import { makeRng } from './rng.js?v=4';
+import { COLORS, TUNE } from './config.js?v=5';
+import { makeRng } from './rng.js?v=5';
 
 const key = (x, y) => `${x},${y}`;
 
@@ -21,6 +21,7 @@ export class World {
     // Research moves these, so nothing reads the raw tunables at run time.
     this.caps = { mixer: TUNE.mixerCap, depot: TUNE.depotCap, deposit: TUNE.depositCap, splitter: TUNE.splitterCap };
     this.jamFuse = TUNE.jamFuse;
+    this.patienceFuse = TUNE.patienceFuse;
     this.unlocked = { splitter: false };
     this.techs = {}; // tech id -> levels bought
     this.nextId = 1;
@@ -53,6 +54,7 @@ export class World {
       jam: 0,
       cool: 0,
       pending: kind === KIND.DEPOT ? 1 : 0,
+      patience: 0, // how long a shop has sat with every order unfilled
       rr: 0,
       ...extra,
     };

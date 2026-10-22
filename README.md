@@ -15,7 +15,7 @@ once it outgrew being a prototype; the history came with it.
 | **Ore deposit** | Drops one ore every few seconds: Ruby, Cobalt or Amber. It only sends. |
 | **Mixer** | Holds up to six items and combines any two colours that react. |
 | **Splitter** | One belt in, two or more out, fed in turn. Researched, then bought. |
-| **Shop** | Wants one colour. Every matching delivery is a point. |
+| **Shop** | Wants one colour. The dots above it are orders waiting. |
 | **Belt** | A one-way lane from a deposit or mixer into a mixer, shop, or another belt. |
 | **Bridge** | Spent where one belt has to hop another. You start with two. |
 
@@ -44,7 +44,13 @@ Fern do nothing, because Fern already contains blue.
    They *can* join, though: drop a belt onto a running lane and its load merges
    in, so two sources share one line. Splitting a line still takes a splitter —
    merging is free, branching is not.
-3. **A mixer fails if its input buffer overflows.** Six of one colour with no
+3. **Shops run out of patience.** A shop raises an order every few seconds, up
+   to four — the dots above it. Fill all four and leave them unfilled and a ring
+   closes around it; when the ring completes, the shop shuts for good and you
+   lose that customer. Serving it resets the clock. Nothing is on the clock
+   before the first delivery of a run, and a newly opened shop gets a while to
+   settle, so the opening is never lost while the line is still being drawn.
+4. **A mixer fails if its input buffer overflows.** Six of one colour with no
    partner will never clear itself, so the machine sounds an alarm and burns
    out fifteen seconds later, which ends the run. Tap a flashing machine to
    dump its buffer for five points — the escape hatch when a route goes wrong.

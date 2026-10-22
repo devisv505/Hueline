@@ -544,3 +544,81 @@ test('a feeder waits at the kerb instead of standing in the lane', () => {
     }
   }
 });
+
+// ---- the dots over a shop ----
+
+test('a shop with orders outstanding runs out of patience and closes', () => {
+  const world = seedWorld(new World(3));
+  const mixer = find(world, KIND.MIXER);
+  for (const ore of world.buildings.filter((b) => b.kind === KIND.DEPOSIT)) connect(world, ore, mixer);
+  const shop = find(world, KIND.DEPOT);
+  const line = connect(world, mixer, shop);
+
+  const closed = new Set();
+  const sim = new Sim(world, { onGiveUp: (b) => closed.add(b) });
+  for (let i = 0; i < 60 * 60; i++) sim.tick(1 / 60);
+  assert.ok(sim.score > 0, 'it was being served');
+  assert.equal(shop.patience, 0, 'a served shop is a patient one');
+
+  world.removeBelt(line); // stop serving it
+  for (let i = 0; i < 60 * 200 && !closed.has(shop); i++) sim.tick(1 / 60);
+  assert.ok(closed.has(shop), 'the shop that stopped being served gave up');
+  assert.equal(world.buildings.includes(shop), false, 'it is gone from the floor');
+});
+
+test('a shop nobody ever connects closes on its own once a run is going', () => {
+  const world = seedWorld(new World(3));
+  const mixer = find(world, KIND.MIXER);
+  for (const ore of world.buildings.filter((b) => b.kind === KIND.DEPOSIT)) connect(world, ore, mixer);
+  connect(world, mixer, find(world, KIND.DEPOT));
+  const closed = [];
+  const sim = new Sim(world, { onGiveUp: (b) => closed.push(b) });
+  for (let i = 0; i < 60 * 600; i++) sim.tick(1 / 60);
+
+  assert.ok(sim.score > 0, 'the floor is running');
+  assert.ok(closed.length > 0, 'shops that arrived and were never wired up gave up');
+  // The one being served is still open, so this is not just everything dying.
+  assert.ok(world.buildings.some((b) => b.kind === KIND.DEPOT && b.patience === 0));
+});
+
+test('nothing is on the clock before the first delivery of a run', () => {
+  const world = seedWorld(new World(3));
+  let closed = false;
+  const sim = new Sim(world, { onGiveUp: () => (closed = true) });
+  // Never connect anything: the opening must survive while the line is drawn.
+  for (let i = 0; i < 60 * 400; i++) sim.tick(1 / 60);
+  assert.equal(sim.delivered, 0);
+  assert.equal(closed, false, 'the opening shop waited');
+  assert.ok(find(world, KIND.DEPOT).pending >= TUNE.demandCap, 'even with every order outstanding');
+});
+
+test('a shop that has just opened is given a while to settle', () => {
+  const world = seedWorld(new World(3));
+  const mixer = find(world, KIND.MIXER);
+  for (const ore of world.buildings.filter((b) => b.kind === KIND.DEPOSIT)) connect(world, ore, mixer);
+  connect(world, mixer, find(world, KIND.DEPOT));
+  const sim = new Sim(world);
+  for (let i = 0; i < 60 * 40; i++) sim.tick(1 / 60);
+  assert.ok(sim.delivered > 0, 'the run is under way');
+
+  const fresh = world.addBuilding(KIND.DEPOT, 2, 2, { color: 'green' });
+  fresh.born = sim.time;
+  fresh.pending = TUNE.demandCap; // straight to a full rank of dots
+  for (let i = 0; i < 60 * (TUNE.shopGrace - 2); i++) sim.tick(1 / 60);
+  assert.equal(fresh.patience, 0, 'still settling in');
+  for (let i = 0; i < 60 * 5; i++) sim.tick(1 / 60);
+  assert.ok(fresh.patience > 0, 'and then the clock starts');
+});
+
+test('serving a shop resets its patience', () => {
+  const world = seedWorld(new World(3));
+  const shop = find(world, KIND.DEPOT);
+  const sim = new Sim(world);
+  sim.delivered = 1; // pretend the run is under way
+  shop.born = -TUNE.shopGrace - 1;
+  shop.pending = TUNE.demandCap;
+  for (let i = 0; i < 60 * 10; i++) sim.tick(1 / 60);
+  assert.ok(shop.patience > 5, 'it has been waiting');
+  sim.deliver(shop, shop.color);
+  assert.equal(shop.patience, 0);
+});

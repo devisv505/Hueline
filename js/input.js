@@ -1,7 +1,7 @@
 // Drawing belts with a finger or a mouse: press a producer, drag, release on a
 // machine. The path grows cell by cell under the cursor and can be walked back.
-import { canStartFrom, canManage, createDraft, draftTo, commitDraft, draftCost } from './world.js?v=4';
-import { sfx } from './audio.js?v=4';
+import { canStartFrom, canManage, createDraft, draftTo, commitDraft, draftCost } from './world.js?v=5';
+import { sfx } from './audio.js?v=5';
 
 const TAP = 7; // px of travel still counted as a tap
 const HOLD = 650; // ms of stillness before a machine can be picked up
