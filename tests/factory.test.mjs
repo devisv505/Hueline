@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { mix, findRecipe, TUNE, GOODS, TECHS, techCost, creditsFor } from '../js/config.js';
-import { World, KIND, seedWorld, createDraft, draftTo, commitDraft, draftCost, makeableColors, canPlaceAt, mergeTargetAt } from '../js/world.js';
+import { World, KIND, seedWorld, createDraft, draftTo, commitDraft, draftCost, makeableColors, canPlaceAt, mergeTargetAt, inboundBelts } from '../js/world.js';
 import { Sim } from '../js/sim.js';
 
 const connect = (world, from, to) => {
@@ -466,4 +466,15 @@ test('arrivals hold off once every makeable colour is served', () => {
   // Blue and yellow ore make blue, yellow and green; two shops each is the lot.
   assert.equal(shops.length, 6, 'the floor fills up and then waits for a new ore colour');
   assert.ok(sim.stalled, 'and it knows it is waiting');
+});
+
+test('a lane that merges in still counts as feeding the machine it reaches', () => {
+  const world = laneWorld();
+  const mixer = find(world, KIND.MIXER);
+  const main = connect(world, find(world, KIND.DEPOSIT, 'blue'), mixer);
+  assert.equal(inboundBelts(world, mixer).length, 1);
+
+  connect(world, find(world, KIND.DEPOSIT, 'yellow'), main.cells[5]);
+  assert.equal(world.beltsTo(mixer).length, 1, 'only one belt actually ends on the mixer');
+  assert.equal(inboundBelts(world, mixer).length, 2, 'but two lines feed it');
 });

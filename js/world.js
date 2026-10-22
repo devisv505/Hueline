@@ -1,7 +1,7 @@
 // The factory floor: buildings on a grid, belts drawn between them, and the
 // rules that decide where a belt may go. No DOM here, so it is unit testable.
-import { COLORS, TUNE } from './config.js';
-import { makeRng } from './rng.js';
+import { COLORS, TUNE } from './config.js?v=2';
+import { makeRng } from './rng.js?v=2';
 
 const key = (x, y) => `${x},${y}`;
 
@@ -153,6 +153,21 @@ export class World {
 
 export const canStartFrom = (b) => b.kind !== KIND.DEPOT;
 export const canEndAt = (b) => b.kind !== KIND.DEPOSIT;
+
+// Every belt whose load ends up at this building, following the ones that
+// merge into other lanes rather than arriving on their own.
+export function inboundBelts(world, building) {
+  const found = world.belts.filter((belt) => belt.to === building.id);
+  const seen = new Set(found.map((b) => b.id));
+  for (let i = 0; i < found.length; i++) {
+    for (const feeder of world.feeders(found[i])) {
+      if (seen.has(feeder.id)) continue;
+      seen.add(feeder.id);
+      found.push(feeder);
+    }
+  }
+  return found;
+}
 
 // A belt may join another belt mid-lane. Not on a bridge — that cell is an
 // overpass, with no way down — and not where something already merges in.

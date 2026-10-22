@@ -1,11 +1,11 @@
 // Screens, upgrades and the frame loop that ties the factory together.
-import { COLORS, TUNE, FACTORY_NAMES, PRIMARIES, GOODS, TECHS, techCost } from './config.js';
-import { World, KIND, seedWorld, canPlaceAt, makeableColors, createDraft, draftTo, commitDraft } from './world.js';
-import { Sim } from './sim.js';
-import { Renderer } from './render.js';
-import { Controls } from './input.js';
-import { unlockAudio, setSoundEnabled, sfx } from './audio.js';
-import { burst, ring, floater, toast, confetti, shake, pop } from './fx.js';
+import { COLORS, TUNE, FACTORY_NAMES, PRIMARIES, GOODS, TECHS, techCost } from './config.js?v=2';
+import { World, KIND, seedWorld, canPlaceAt, makeableColors, inboundBelts, createDraft, draftTo, commitDraft } from './world.js?v=2';
+import { Sim } from './sim.js?v=2';
+import { Renderer } from './render.js?v=2';
+import { Controls } from './input.js?v=2';
+import { unlockAudio, setSoundEnabled, sfx } from './audio.js?v=2';
+import { burst, ring, floater, toast, confetti, shake, pop } from './fx.js?v=2';
 
 const $ = (id) => document.getElementById(id);
 const SAVE_KEY = 'hueline.v1';
@@ -220,7 +220,7 @@ function advanceCoach() {
   if (coachStep === 99) return;
   const mixer = world.buildings.find((b) => b.kind === KIND.MIXER);
   if (!mixer) return;
-  const feeds = world.beltsTo(mixer).length;
+  const feeds = inboundBelts(world, mixer).length; // a merged lane counts too
   const sends = world.beltsFrom(mixer).length;
   let step = 0;
   if (sim.delivered > 0) step = 99;
