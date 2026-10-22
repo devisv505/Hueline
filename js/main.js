@@ -8,7 +8,8 @@ import { unlockAudio, setSoundEnabled, sfx } from './audio.js';
 import { burst, ring, floater, toast, confetti, shake, pop } from './fx.js';
 
 const $ = (id) => document.getElementById(id);
-const SAVE_KEY = 'minifactory.v1';
+const SAVE_KEY = 'hueline.v1';
+const OLD_SAVE_KEY = 'minifactory.v1'; // the prototype's name before Hueline
 const SPEEDS = [0, 1, 2];
 const SPEED_ICONS = ['#i-pause', '#i-play', '#i-fast'];
 
@@ -23,7 +24,8 @@ let coachStep = -1;
 
 function readSave() {
   try {
-    return { best: 0, sound: true, ...JSON.parse(localStorage.getItem(SAVE_KEY) || '{}') };
+    const stored = localStorage.getItem(SAVE_KEY) ?? localStorage.getItem(OLD_SAVE_KEY);
+    return { best: 0, sound: true, ...JSON.parse(stored || '{}') };
   } catch {
     return { best: 0, sound: true };
   }

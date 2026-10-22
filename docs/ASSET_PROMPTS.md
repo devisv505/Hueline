@@ -1,11 +1,11 @@
-# Mini Factory: art asset prompts
+# Hueline: art asset prompts
 
-Prompts for the icons and art Mini Factory would use. The target look is
+Prompts for the icons and art Hueline would use. The target look is
 `docs/reference/factory.webp` — a screenshot of the prototype running.
 **Attach that image to every prompt.**
 
 This is **not** the Pawzzle look. Pawzzle is warm wood, jelly cats and brown
-outlines; Mini Factory is cool, flat and papery: white, pastel, soft shadows, no
+outlines; Hueline is cool, flat and papery: white, pastel, soft shadows, no
 outlines. Do not reuse `docs/ASSET_PROMPTS.md` at the repo root as a style guide.
 
 ---
@@ -162,9 +162,9 @@ Image 1 is the colour and mood reference.
 
 Style: flat vector game UI, modern and geometric. Solid flat fills only: no gradients, no texture, no bevels, no gloss, no outlines in a darker shade.
 
-A game logo reading exactly "MINI FACTORY" on two lines: "MINI" small on the first line, "FACTORY" large on the second. Geometric rounded sans-serif, heavy weight, generous letter spacing on "MINI". "MINI" in slate grey #7D8699, "FACTORY" in pink #EF7F9C. Above the words, a single small decoration: three rounded squares in Cobalt #6CA7E8, Amber #F3C44D and Fern #7CCF8C sitting in a row on a short white conveyor belt with a soft grey shadow beneath it. Centered, filling about 80% of the width, with clean empty margins.
+A game logo reading exactly "HUELINE" as one word on a single line. Geometric rounded sans-serif, heavy weight, moderate letter spacing. "HUE" in pink #EF7F9C and "LINE" in slate grey #7D8699, as one continuous word with no space or hyphen between them. Above the word, a single small decoration: three rounded squares in Cobalt #6CA7E8, Amber #F3C44D and Fern #7CCF8C sitting in a row on a short white conveyor belt with a soft grey shadow beneath it. Centered, filling about 80% of the width, with clean empty margins.
 
-Spell "MINI FACTORY" exactly, no other text, no tagline, no watermark.
+Spell "HUELINE" exactly, as one word, no other text, no tagline, no watermark.
 Background: fully transparent PNG (fallback: solid flat #FF00FF magenta).
 ```
 

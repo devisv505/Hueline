@@ -1,4 +1,4 @@
-# Mini Factory — prototype 1
+# Hueline — prototype 1
 
 An automation game with no spreadsheets in it. Ore deposits drop primary
 colours, mixers combine two different colours into a new one, and shops want
@@ -102,7 +102,7 @@ the slicing command and a note on what you give up by swapping SVG for PNG.
 
 ```sh
 npm start                 # serves the repo; open /prototype_1/
-npm test                  # runs the Pawzzle and Mini Factory tests
+npm test                  # runs the Pawzzle and Hueline tests
 ```
 
 Module scripts do not load from `file://`, so it needs a server.

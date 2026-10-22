@@ -126,4 +126,4 @@ export function techCost(tech, level) {
   return tech.cost + (tech.step ?? 0) * level;
 }
 
-export const FACTORY_NAMES = ['Prism Works', 'Hue Foundry', 'Pigment Bay', 'Chroma Falls', 'Tint Harbour', 'Spectra Mill'];
+export const FACTORY_NAMES = ['Prism Works', 'Indigo Reach', 'Pigment Bay', 'Chroma Falls', 'Tint Harbour', 'Spectra Mill'];
