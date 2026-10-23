@@ -1,15 +1,16 @@
-// Screens, upgrades and the frame loop that ties the factory together.
-import { COLORS, TUNE, FACTORY_NAMES, PRIMARIES, GOODS, TECHS, techCost } from './config.js?v=5';
-import { World, KIND, seedWorld, canPlaceAt, canManage, makeableColors, inboundBelts, createDraft, draftTo, commitDraft } from './world.js?v=5';
-import { Sim } from './sim.js?v=5';
-import { Renderer } from './render.js?v=5';
-import { Controls } from './input.js?v=5';
-import { unlockAudio, setSoundEnabled, sfx } from './audio.js?v=5';
-import { burst, ring, floater, toast, confetti, shake, pop } from './fx.js?v=5';
+// Screens, the build bar, the goal board and the frame loop that ties the factory together.
+import { COLORS, TUNE, GOALS, BUILDS, MACHINES, FACTORY_NAMES, itemName, colorOf, sizeOf, buildParts, buildKey } from './config.js?v=6';
+import { World, KIND, seedWorld, saveWorld, loadWorld, canPlaceAt, canManage, inboundBelts, createDraft, draftTo, commitDraft, draftCost } from './world.js?v=6';
+import { Sim } from './sim.js?v=6';
+import { Renderer } from './render.js?v=6';
+import { Controls } from './input.js?v=6';
+import { unlockAudio, setSoundEnabled, sfx } from './audio.js?v=6';
+import { burst, ring, floater, toast, confetti, pop } from './fx.js?v=6';
 
 const $ = (id) => document.getElementById(id);
-const SAVE_KEY = 'hueline.v1';
+const SAVE_KEY = 'hueline.v1'; // settings
 const OLD_SAVE_KEY = 'minifactory.v1'; // the prototype's name before Hueline
+const FLOOR_KEY = 'hueline.floor.v1'; // the factory itself
 const SPEEDS = [0, 1, 2];
 const SPEED_ICONS = ['#i-pause', '#i-play', '#i-fast'];
 
@@ -25,9 +26,9 @@ let coachStep = -1;
 function readSave() {
   try {
     const stored = localStorage.getItem(SAVE_KEY) ?? localStorage.getItem(OLD_SAVE_KEY);
-    return { best: 0, sound: true, ...JSON.parse(stored || '{}') };
+    return { sound: true, ...JSON.parse(stored || '{}') };
   } catch {
-    return { best: 0, sound: true };
+    return { sound: true };
   }
 }
 
@@ -35,76 +36,105 @@ function writeSave() {
   try {
     localStorage.setItem(SAVE_KEY, JSON.stringify(save));
   } catch {
-    // Private mode: the run simply is not remembered.
+    // Private mode: the settings simply are not remembered.
+  }
+}
+
+// ---- the floor between sessions ----
+
+function readFloor() {
+  try {
+    return loadWorld(JSON.parse(localStorage.getItem(FLOOR_KEY) || 'null'));
+  } catch {
+    return null; // a save this build cannot read is not worth crashing over
+  }
+}
+
+// Changes mark the floor dirty; the frame loop writes it at most every couple
+// of seconds, and leaving the page writes it straight away.
+let floorDirty = false;
+let floorWritten = 0;
+const touchFloor = () => (floorDirty = true);
+
+function writeFloor() {
+  if (!floorDirty || !world) return;
+  floorDirty = false;
+  floorWritten = performance.now();
+  try {
+    localStorage.setItem(FLOOR_KEY, JSON.stringify(saveWorld(world)));
+  } catch {
+    // Private mode: the floor lasts as long as the tab.
+  }
+}
+
+function forgetFloor() {
+  try {
+    localStorage.removeItem(FLOOR_KEY);
+  } catch {
+    // Nothing was stored to begin with.
   }
 }
 
 // ---- hooks the simulation calls back into ----
 
-function at(b) {
-  const p = renderer.toClient(b.x + 0.5, b.y + 0.5);
-  return p;
-}
+const at = (b) => renderer.toClient(b.x + 0.5, b.y + 0.5);
+const hub = () => world.buildings.find((b) => b.kind === KIND.HUB);
+const fillOf = (key) => COLORS[colorOf(key)].fill;
+const beadHtml = (key) => `<i class="bead" data-size="${sizeOf(key)}" style="--bead:${fillOf(key)}"></i>`;
+let rejectNoted = -1; // the goal the "only counts" toast was last shown for
 
 const hooks = {
-  onDeliver(b, color, _total, paid) {
+  onDeliver(b, key) {
     const p = at(b);
-    burst(p.x, p.y, color, 10);
-    floater(p.x, p.y - 10, `+${paid}`, COLORS[color].deep);
+    burst(p.x, p.y, colorOf(key), 8);
+    if (sim.goal) floater(p.x, p.y - 10, `${world.goal.got}/${sim.goal.count}`, COLORS[colorOf(key)].deep);
     sfx.deliver();
-    bumpScore();
-    showStock();
+    showGoal();
+    touchFloor();
     advanceCoach();
   },
-  onCraft(b, color) {
+  onReject(b, key) {
+    // Off to one side, clear of the count that rises off a delivery.
     const p = at(b);
-    ring(p.x, p.y, color);
+    floater(p.x + 26, p.y + 4, '×', '#7d8699');
+    if (rejectNoted === world.goal.index) return;
+    rejectNoted = world.goal.index;
+    toast(`The hub only counts ${itemName(sim.goal.item, 2)} — ${itemName(key, 2)} are scrapped`, { color: '#7d8699', icon: '#i-hub' });
+  },
+  onGoal(done, next) {
+    const p = at(hub());
+    ring(p.x, p.y, colorOf(done.item));
+    burst(p.x, p.y, colorOf(done.item), 18);
+    sfx.reward();
+    confetti(60);
+    showStock();
+    showGoal();
+    touchFloor();
+    writeFloor();
+    showGoalDone(done, next);
+  },
+  onCraft(b, key) {
+    const p = at(b);
+    ring(p.x, p.y, colorOf(key));
     sfx.craft();
   },
   onJam(b) {
     sfx.alarm();
-    toast(`${label(b)} is overflowing — tap it to dump the buffer`, { color: '#ec5a5a', icon: '#i-alarm' });
+    toast(`A ${b.kind} is stuck — tap it to dump its buffer`, { color: '#ec5a5a', icon: '#i-alarm' });
   },
   onVent(b, dumped) {
     const p = at(b);
-    toast(`Buffer dumped — ${dumped} items scrapped`, { color: '#7d8699', icon: '#i-vent' });
+    toast(`Buffer dumped — ${dumped} item${dumped === 1 ? '' : 's'} scrapped`, { color: '#7d8699', icon: '#i-vent' });
     burst(p.x, p.y, 'slate', dumped + 4);
-    floater(p.x, p.y - 10, `−${TUNE.ventCost}`, '#ec5a5a');
     sfx.erase();
-    bumpScore();
-  },
-  onSpawn(b) {
-    const p = at(b);
-    ring(p.x, p.y, b.color ?? 'slate');
-    sfx.arrive();
-    if (b.kind === KIND.DEPOT) toast(`New shop wants ${COLORS[b.color].name}`, { color: COLORS[b.color].fill, icon: '#i-shop' });
-  },
-  onGiveUp(b) {
-    const p = at(b);
-    burst(p.x, p.y, b.color, 14);
-    floater(p.x, p.y - 10, 'closed', '#ec5a5a');
-    sfx.fail();
-    toast(`The ${COLORS[b.color].name} shop gave up waiting and closed`, { color: '#ec5a5a', icon: '#i-shop' });
-    showStock();
-  },
-  onStalled() {
-    toast('Every colour you can make has its shops — buy a new ore deposit to open up more', { color: '#ef7f9c', icon: '#i-ore' });
-  },
-  onFail(b) {
-    sfx.fail();
-    shake($('app'));
-    const p = at(b);
-    burst(p.x, p.y, 'slate', 16);
-    setTimeout(() => showGameOver(b), 500);
   },
 };
-
-const label = (b) => (b.kind === KIND.MIXER ? 'A mixer' : b.kind === KIND.DEPOT ? `The ${COLORS[b.color].name} shop` : b.kind === KIND.SPLITTER ? 'A splitter' : 'A deposit');
 
 // ---- boot and restart ----
 
 // Cut the floor to the shape of the screen, so a phone gets a tall factory and
-// a desktop a wide one, both at about the same number of cells.
+// a desktop a wide one, both at about the same number of cells. A saved floor
+// keeps the shape it was made with.
 function floorShape() {
   const rect = $('stage').getBoundingClientRect();
   if (!rect.width || !rect.height) return TUNE;
@@ -114,11 +144,12 @@ function floorShape() {
   return { cols, rows };
 }
 
-function boot(seed = (Math.random() * 1e9) | 0) {
-  world = seedWorld(new World(seed, floorShape()));
+// Opens the saved floor unless `fresh`, and says whether it did.
+function boot(fresh = false) {
+  const saved = fresh ? null : readFloor();
+  world = saved ?? seedWorld(new World((Math.random() * 1e9) | 0, floorShape()));
   sim = new Sim(world, hooks);
-  sim.relaxed = false;
-  $('factory-name').textContent = FACTORY_NAMES[seed % FACTORY_NAMES.length];
+  $('factory-name').textContent = FACTORY_NAMES[world.seed % FACTORY_NAMES.length];
   if (!renderer) {
     renderer = new Renderer($('scene'), world);
     controls = new Controls($('scene'), world, renderer, controlHooks);
@@ -129,11 +160,15 @@ function boot(seed = (Math.random() * 1e9) | 0) {
   controls.locked = false;
   stopPlacing();
   coachStep = -1;
+  rejectNoted = -1;
   speedStep = 1;
   showSpeed();
   showStock();
-  showScore();
+  showGoal();
   advanceCoach();
+  touchFloor();
+  writeFloor();
+  return Boolean(saved);
 }
 
 const controlHooks = {
@@ -141,7 +176,11 @@ const controlHooks = {
     showStock();
     const p = renderer.toClient(belt.pts.at(-1).x, belt.pts.at(-1).y);
     burst(p.x, p.y, 'slate', 5);
-    if (cost.bridges) toast(`${cost.bridges} bridge${cost.bridges > 1 ? 's' : ''} built`, { color: '#3f4654', icon: '#i-bridge' });
+    if (cost.bridges) {
+      const n = cost.bridges;
+      toast(`${n} bridge${n > 1 ? 's' : ''} built — ${n * TUNE.bridgeTiles} extra tiles`, { color: '#3f4654', icon: '#i-bridge' });
+    }
+    touchFloor();
     advanceCoach();
   },
   onCancel() {
@@ -163,21 +202,26 @@ const controlHooks = {
     burst(p.x, p.y, 'slate', 7);
     sfx.erase();
     showStock();
+    touchFloor();
+    advanceCoach();
   },
 };
 
 function tapBuilding(b) {
   if (b.jam > 0 && sim.vent(b)) return;
   sfx.click();
-  if (b.kind === KIND.DEPOT) {
-    const parts = COLORS[b.color].parts.map((p) => COLORS[p].name).join(' + ');
-    toast(`Wants ${COLORS[b.color].name} (${parts})`, { color: COLORS[b.color].fill, icon: '#i-shop' });
+  const holding = b.buffer.map((key) => itemName(key)).join(', ');
+  if (b.kind === KIND.HUB) {
+    const goal = sim.goal;
+    toast(goal ? goal.hint : 'Every goal is done — the hub takes anything now', { color: goal ? fillOf(goal.item) : '#3f4654', icon: '#i-hub' });
   } else if (b.kind === KIND.MIXER) {
-    toast(b.buffer.length ? `Holding ${b.buffer.map((c) => COLORS[c].name).join(', ')}` : 'Mixer is empty — feed it two colours', { color: '#3f4654', icon: '#i-mixer' });
+    toast(holding ? `Mixer holding ${holding}` : 'Mixer is empty — feed it two different colours', { color: '#3f4654', icon: '#i-mixer' });
+  } else if (b.kind === KIND.PRESS) {
+    toast(holding ? `Press holding ${holding}` : 'Press is empty — feed it two matching items', { color: '#3f4654', icon: '#i-press' });
   } else if (b.kind === KIND.SPLITTER) {
     toast('Splitter — it feeds its outgoing belts in turn', { color: '#3f4654', icon: '#i-splitter' });
   } else {
-    toast(`${COLORS[b.color].name} ore, one every ${TUNE.oreInterval}s`, { color: COLORS[b.color].fill, icon: '#i-ore' });
+    toast(`${COLORS[b.color].name} ore, one bead every ${TUNE.oreInterval}s`, { color: COLORS[b.color].fill, icon: '#i-ore' });
   }
 }
 
@@ -185,29 +229,35 @@ function tapBuilding(b) {
 
 function showStock() {
   const draft = controls?.draft;
-  const spentBelts = draft ? Math.max(0, draft.cells.length - (draft.end || draft.endFeed ? 2 : 1)) : 0;
-  const spentBridges = draft ? draft.bridges.length : 0;
-  const belts = world.stock.belts - spentBelts;
-  const bridges = world.stock.bridges - spentBridges;
+  const belts = world.stock.belts - (draft ? draftCost(draft).belts : 0);
   $('belt-count').textContent = belts;
-  $('bridge-count').textContent = bridges;
   $('pill-belts').classList.toggle('low', belts <= 6);
-  $('pill-bridges').classList.toggle('low', bridges === 0);
-  $('credit-count').textContent = world.stock.credits;
-  $('store-credits').textContent = world.stock.credits;
-  $('tech-credits').textContent = world.stock.credits;
+  renderDock();
 }
 
-function showScore() {
-  $('score').textContent = sim.score;
-}
-
-function bumpScore() {
-  showScore();
-  const el = $('score');
-  el.classList.remove('bump');
-  void el.offsetWidth;
-  el.classList.add('bump');
+// The board under the floor: what the hub wants, how many have arrived, and a
+// bar along the rule that fills in the item's colour.
+function showGoal() {
+  const goal = sim.goal;
+  const bead = $('goal-bead');
+  const bar = $('goal-fill');
+  if (!goal) {
+    bead.dataset.size = 1;
+    bead.style.setProperty('--bead', '#60bd81');
+    $('goal-count').textContent = '✓';
+    $('goal-name').textContent = 'Every goal done';
+    $('goal-step').textContent = 'The hub takes anything now';
+    bar.style.background = '#60bd81';
+    bar.style.transform = 'scaleX(1)';
+    return;
+  }
+  bead.dataset.size = sizeOf(goal.item);
+  bead.style.setProperty('--bead', fillOf(goal.item));
+  $('goal-count').textContent = `${world.goal.got} / ${goal.count}`;
+  $('goal-name').textContent = itemName(goal.item, goal.count);
+  $('goal-step').textContent = `Goal ${world.goal.index + 1} of ${GOALS.length}`;
+  bar.style.background = fillOf(goal.item);
+  bar.style.transform = `scaleX(${(world.goal.got / goal.count).toFixed(3)})`;
 }
 
 function showSpeed() {
@@ -223,167 +273,95 @@ function showCoach(text, ms = 0) {
   if (ms) coachTimer = setTimeout(() => (el.hidden = true), ms);
 }
 
-// A four-beat tutorial that reads the floor rather than scripting the player.
+// Only the very first goal is coached on the floor; after that each goal card
+// says what is new.
 function advanceCoach() {
   if (coachStep === 99) return;
-  const mixer = world.buildings.find((b) => b.kind === KIND.MIXER);
-  if (!mixer) return;
-  const feeds = inboundBelts(world, mixer).length; // a merged lane counts too
-  const sends = world.beltsFrom(mixer).length;
   let step = 0;
-  if (sim.delivered > 0) step = 99;
-  else if (feeds === 0) step = 0;
-  else if (feeds === 1) step = 1;
-  else if (sends === 0) step = 2;
-  else step = 3;
+  if (world.goal.index > 0 || sim.delivered > 0) step = 99;
+  else if (inboundBelts(world, hub()).length) step = 1;
   if (step === coachStep) return;
   coachStep = step;
-  if (step === 99) return $('coach') && ($('coach').hidden = true);
-  const lines = [
-    'Drag from an ore deposit onto the mixer to lay a belt',
-    'Now feed in the other colour — two different ores make a new one',
-    'Send the mix on: drag from the mixer to the shop',
-    'That is the whole loop. Keep the orders coming.',
-  ];
-  showCoach(lines[step], step === 3 ? 4200 : 0);
+  if (step === 99) return void ($('coach').hidden = true);
+  const lines = ['Drag from the Cobalt deposit to the hub to lay a belt', 'Cobalt beads ride the belt into the hub'];
+  showCoach(lines[step], step === 1 ? 3500 : 0);
 }
 
-// ---- store, research and placing what you buy ----
+// ---- the build bar, and putting machines down ----
 
-function afford(cost) {
-  return world.stock.credits >= cost;
+const machineName = ({ kind, color }) => (kind === KIND.DEPOSIT ? `${COLORS[color].name} deposit` : kind);
+const machineInfo = (kind) => MACHINES[kind === KIND.DEPOSIT ? 'ore' : kind];
+
+// One button per building unlocked so far, in a fixed order so a machine is
+// always where you last saw it. The buttons are only rebuilt when that set
+// changes, so a newly unlocked one can pop in on its own.
+let dockKeys = '';
+function renderDock() {
+  const keys = BUILDS.filter((key) => world.unlocked.includes(key));
+  if (keys.join() !== dockKeys) {
+    const before = dockKeys ? dockKeys.split(',') : null;
+    dockKeys = keys.join();
+    $('dock').replaceChildren(...keys.map((key, i) => dockButton(key, i, Boolean(before) && !before.includes(key))));
+  }
+  const armed = placing && !placing.moving ? buildKey(placing.kind, placing.color) : null;
+  for (const btn of $('dock').children) {
+    btn.classList.toggle('on', btn.dataset.key === armed);
+    btn.classList.toggle('fresh', world.fresh.includes(btn.dataset.key));
+  }
 }
 
-function spend(cost) {
-  world.stock.credits -= cost;
-  showStock();
-}
-
-function row(icon, title, text, cost, { owned = false, locked = false, tag = '' } = {}) {
+function dockButton(key, i, arriving) {
+  const { kind, color } = buildParts(key);
+  const info = machineInfo(kind);
   const btn = document.createElement('button');
-  const can = !locked && !owned && afford(cost);
-  btn.className = `choice${owned ? ' owned' : ''}${locked || (!can && !owned) ? ' locked' : ''}`;
-  btn.disabled = !can;
-  btn.innerHTML =
-    `<span class="badge"><svg class="icon"><use href="${icon}"></use></svg></span>` +
-    `<span class="choice-text"><h3>${title}${tag ? ` <i class="tag">${tag}</i>` : ''}</h3><p>${text}</p></span>` +
-    `<span class="price">${owned ? 'owned' : locked ? 'locked' : cost}</span>`;
+  btn.className = `dock-btn${arriving ? ' arrive' : ''}`;
+  btn.dataset.key = key;
+  btn.title = `${color ? machineName({ kind, color }) : info.label} (${i + 1}) — ${info.note}`;
+  btn.setAttribute('aria-label', `Build a ${machineName({ kind, color })}`);
+  if (color) btn.style.setProperty('--tint', COLORS[color].fill);
+  btn.innerHTML = `<svg class="icon"><use href="${info.icon}"></use></svg><small>${i + 1}</small><i class="dot"></i>`;
+  btn.addEventListener('click', () => pickTool(key));
   return btn;
 }
 
-function renderStore() {
-  const list = $('store-list');
-  list.innerHTML = '';
-  for (const [id, good] of Object.entries(GOODS)) {
-    const locked = Boolean(good.needs) && !world.unlocked[good.needs];
-    const note = locked ? 'Research it first, over in the lab.' : good.note;
-    if (id === 'deposit') {
-      list.append(oreRow(good));
-      continue;
-    }
-    const btn = row(good.icon, good.label, note, good.cost, { locked });
-    btn.addEventListener('click', () => buy(id, good));
-    list.append(btn);
-  }
-}
-
-function openStore() {
-  renderStore();
+// Picking a building arms it for one drop on the floor; picking it again
+// changes your mind. Picking it is also what clears its New dot.
+function pickTool(key) {
   sfx.click();
-  pause();
-  openPopup('store');
-}
-
-// Ore comes in three flavours, so it gets one row with three buttons.
-function oreRow(good) {
-  const wrap = document.createElement('div');
-  wrap.className = 'ore-row';
-  wrap.innerHTML = `<p class="ore-label">${good.label} <span class="price">${good.cost}</span></p>`;
-  const buttons = document.createElement('div');
-  buttons.className = 'ore-buttons';
-  for (const color of PRIMARIES) {
-    const btn = document.createElement('button');
-    btn.className = 'ore-pick';
-    btn.disabled = !afford(good.cost);
-    btn.style.setProperty('--ore', COLORS[color].fill);
-    btn.innerHTML = `<i></i><span>${COLORS[color].name}</span>`;
-    btn.addEventListener('click', () => buy('deposit', good, color));
-    buttons.append(btn);
-  }
-  wrap.append(buttons);
-  return wrap;
-}
-
-function buy(id, good, color) {
-  if (!afford(good.cost)) return sfx.nope();
-  if (good.place) {
-    // Pay on the drop, not on the click, so a cancelled placement costs nothing.
-    closePopup('store').then(() => startPlacing({ kind: good.place, color }, good.cost));
+  if (placing && !placing.moving && buildKey(placing.kind, placing.color) === key) {
+    stopPlacing();
     return;
   }
-  spend(good.cost);
-  if (id === 'belts') world.stock.belts += good.amount;
-  if (id === 'bridge') world.stock.bridges += good.amount;
-  sfx.reward();
-  toast(`${good.label} bought`, { color: '#3f4654', icon: '#i-store' });
-  renderStore();
-}
-
-function renderTech() {
-  const list = $('tech-list');
-  list.innerHTML = '';
-  for (const tech of TECHS) {
-    const level = world.techs[tech.id] ?? 0;
-    const max = tech.levels ?? 1;
-    const owned = level >= max;
-    const cost = techCost(tech, level);
-    const tag = max > 1 ? `${level}/${max}` : '';
-    const btn = row(tech.icon, tech.name, tech.text, cost, { owned, tag });
-    btn.addEventListener('click', () => {
-      if (!afford(cost)) return sfx.nope();
-      spend(cost);
-      world.techs[tech.id] = level + 1;
-      tech.apply(world);
-      sfx.reward();
-      confetti(34);
-      toast(`${tech.name} researched`, { color: '#ef7f9c', icon: '#i-tech' });
-      renderTech();
-    });
-    list.append(btn);
+  if (world.fresh.includes(key)) {
+    world.fresh = world.fresh.filter((k) => k !== key);
+    touchFloor();
   }
-}
-
-function openTech() {
-  renderTech();
-  sfx.click();
-  pause();
-  openPopup('tech');
+  startPlacing(buildParts(key));
 }
 
 let placing = null;
-const PLACE_NAMES = { mixer: 'mixer', splitter: 'splitter', deposit: 'deposit' };
-const machineName = (what) =>
-  what.color ? `${COLORS[what.color].name} ${PLACE_NAMES[what.kind]}` : PLACE_NAMES[what.kind];
 
-function startPlacing(what, cost) {
-  placing = { ...what, cost };
+function startPlacing(what) {
+  placing = { kind: what.kind, color: what.color ?? null };
   controls.setPlacing(placing);
-  $('placing-text').textContent = `Tap an empty spot for your ${machineName(what)}`;
+  $('placing-text').textContent = `Tap an empty spot for your ${machineName(placing)}`;
   $('btn-scrap').hidden = true;
   $('placing-bar').hidden = false;
   $('coach').hidden = true;
+  renderDock();
   resume();
 }
 
-// Held long enough: the machine comes up in hand, to drop somewhere else or scrap.
+// Held long enough: the machine comes up in hand, to drop somewhere else or remove.
 function pickUp(building) {
   if (!canManage(building) || placing) return;
-  placing = { kind: building.kind, color: building.color, cost: 0, moving: building };
+  placing = { kind: building.kind, color: building.color ?? null, moving: building };
   controls.setPlacing(placing);
   $('placing-text').textContent = `Moving the ${machineName(placing)} — tap a new spot`;
   $('btn-scrap').hidden = false;
   $('placing-bar').hidden = false;
   $('coach').hidden = true;
+  renderDock();
   sfx.grab();
   resume();
 }
@@ -393,19 +371,21 @@ function stopPlacing() {
   controls.setPlacing(null);
   $('placing-bar').hidden = true;
   $('btn-scrap').hidden = true;
+  renderDock();
 }
 
-// Scrapping gives back the belt tiles that ran to it, but none of the credits.
-function scrapHeld() {
+// Removing a machine pulls up its belts and hands their tiles back; it can be
+// built again whenever you like.
+function removeHeld() {
   const victim = placing?.moving;
   if (!victim) return;
   const p = at(victim);
   world.removeBuilding(victim);
-  burst(p.x, p.y, 'slate', 12);
+  burst(p.x, p.y, victim.color ?? 'slate', 10);
   sfx.erase();
-  toast(`${machineName(placing)} scrapped — no refund`, { color: '#ec5a5a', icon: '#i-alarm' });
   stopPlacing();
   showStock();
+  touchFloor();
   advanceCoach();
 }
 
@@ -416,12 +396,11 @@ function placeAt(cell) {
     showCoach('Not enough room there — machines need a cell of air', 1600);
     return;
   }
-  if (!afford(placing.cost)) {
+  if (!placing.moving && !world.unlocked.includes(buildKey(placing.kind, placing.color))) {
     sfx.nope();
     stopPlacing();
     return;
   }
-  spend(placing.cost);
   // Moving one takes its belts with it: they would run to the wrong place now.
   if (placing.moving) world.removeBuilding(placing.moving);
   const b = world.addBuilding(placing.kind, cell.x, cell.y, placing.color ? { color: placing.color } : {});
@@ -432,25 +411,40 @@ function placeAt(cell) {
   sfx.lay();
   stopPlacing();
   showStock();
+  touchFloor();
   advanceCoach();
 }
 
-// ---- game over ----
+// ---- a goal finished ----
 
-function showGameOver(b) {
-  controls.locked = true;
-  running = false;
-  $('over-title').textContent = b.kind === KIND.MIXER ? 'A mixer overflowed' : 'A shop drowned in the wrong colour';
-  $('over-text').textContent =
-    b.kind === KIND.MIXER
-      ? `Six loads of ${COLORS[b.buffer[0]]?.name ?? 'one colour'} with nothing to mix them with. Split the flow, or add a second mixer next time.`
-      : 'Deliveries it never ordered piled up at the door. Check where each belt ends.';
-  $('final-score').textContent = sim.score;
-  const best = Math.max(save.best, sim.score);
-  $('best-line').textContent = sim.score > save.best && sim.score > 0 ? 'New best run!' : `Best so far: ${best}`;
-  save.best = best;
-  writeSave();
-  openPopup('over');
+function giftHtml(icon, text, color) {
+  return `<span class="gift"><svg class="icon"${color ? ` style="color:${color}"` : ''}><use href="${icon}"></use></svg>${text}</span>`;
+}
+
+function giftsHtml(gives) {
+  const unlocked = gives.unlocks.map((key) => {
+    const parts = buildParts(key);
+    const name = parts.color ? machineName(parts) : machineInfo(parts.kind).label;
+    return giftHtml(machineInfo(parts.kind).icon, `${name} unlocked`, parts.color && COLORS[parts.color].fill);
+  });
+  return [...unlocked, giftHtml('#i-belt', `+${gives.belts} belt tiles`)].join('');
+}
+
+let doneAction = null; // the machine the card's button puts straight down
+function showGoalDone(done, next) {
+  $('done-kicker').textContent = `Goal ${GOALS.indexOf(done) + 1} of ${GOALS.length} complete`;
+  $('done-title').textContent = `${done.count} ${itemName(done.item, done.count)} delivered`;
+  $('done-gifts').innerHTML = giftsHtml(done.gives);
+  $('done-next').innerHTML = next
+    ? `<p class="next-label">Next goal</p><p class="next-goal">${beadHtml(next.item)}<b>${next.count} ${itemName(next.item, next.count)}</b></p><p class="next-hint">${next.hint}</p>`
+    : '<p class="next-label">That is every goal for now</p><p class="next-hint">The hub takes anything from here on. Keep building.</p>';
+  doneAction = done.gives.unlocks.length ? buildParts(done.gives.unlocks[0]) : null;
+  $('done-action').textContent = doneAction ? `Build a ${machineName(doneAction)}` : 'Keep building';
+  // Let the confetti land before the card covers the floor.
+  setTimeout(() => {
+    pause();
+    openPopup('goal-done');
+  }, 700);
 }
 
 // ---- popups ----
@@ -486,28 +480,26 @@ function pause() {
 }
 
 function resume() {
-  if (sim.over) return;
   running = true;
 }
 
 // ---- recipe reference in the help card ----
 
 function fillRecipes() {
-  const grid = $('recipe-grid');
+  const chip = (color) => `<span class="chip" style="background:${COLORS[color].fill}"></span>`;
   const compounds = Object.keys(COLORS).filter((c) => COLORS[c].parts.length > 1);
-  grid.innerHTML = compounds
-    .map((c) => {
-      const parts = COLORS[c].parts;
-      // Show the three-part colour as a real pair, e.g. Ruby + Fern, not "any mix".
-      const rest = parts.slice(1);
-      const left =
-        parts.length === 3
-          ? [parts[0], compounds.find((k) => COLORS[k].parts.length === 2 && COLORS[k].parts.every((p) => rest.includes(p)))]
-          : parts;
-      const chips = left.map((p) => `<span class="chip" style="background:${COLORS[p].fill}"></span>`).join('<b>+</b>');
-      return `<div class="recipe">${chips}<b>→</b><span class="chip" style="background:${COLORS[c].fill}"></span>${COLORS[c].name}</div>`;
-    })
-    .join('');
+  const mixes = compounds.map((c) => {
+    const parts = COLORS[c].parts;
+    // Show the three-part colour as a real pair, e.g. Ruby + Fern, not "any mix".
+    const rest = parts.slice(1);
+    const left =
+      parts.length === 3
+        ? [parts[0], compounds.find((k) => COLORS[k].parts.length === 2 && COLORS[k].parts.every((p) => rest.includes(p)))]
+        : parts;
+    return `<div class="recipe">${left.map(chip).join('<b>+</b>')}<b>→</b>${chip(c)}${COLORS[c].name}</div>`;
+  });
+  const press = `<div class="recipe">${chip('yellow')}<b>+</b>${chip('yellow')}<b>→</b>${beadHtml('yellow:2')}Amber pearl</div>`;
+  $('recipe-grid').innerHTML = [...mixes, press].join('');
 }
 
 // ---- buttons and keys ----
@@ -529,15 +521,22 @@ $('btn-help').addEventListener('click', () => {
   openPopup('help');
 });
 
-$('btn-again').addEventListener('click', async () => {
+
+$('btn-done').addEventListener('click', () => {
   sfx.click();
-  await closePopup('over');
-  boot();
-  resume();
+  const action = doneAction;
+  closePopup('goal-done').then(() => {
+    if (action) {
+      // Going straight from the card to the floor counts as having seen it.
+      world.fresh = world.fresh.filter((key) => key !== buildKey(action.kind, action.color));
+      showStock();
+      startPlacing(action);
+    } else {
+      resume();
+    }
+  });
 });
 
-$('btn-store').addEventListener('click', openStore);
-$('btn-tech').addEventListener('click', openTech);
 $('btn-cancel-place').addEventListener('click', () => {
   sfx.click();
   stopPlacing();
@@ -545,7 +544,30 @@ $('btn-cancel-place').addEventListener('click', () => {
 
 $('btn-scrap').addEventListener('click', () => {
   sfx.click();
-  scrapHeld();
+  removeHeld();
+});
+
+// Wiping the floor takes two taps, so a stray one never costs a factory.
+let resetArmed = 0;
+$('btn-reset').addEventListener('click', () => {
+  sfx.click();
+  const btn = $('btn-reset');
+  const disarm = () => {
+    clearTimeout(resetArmed);
+    resetArmed = 0;
+    btn.textContent = 'Start a new factory';
+    btn.classList.remove('danger');
+  };
+  if (!resetArmed) {
+    btn.textContent = 'Tap again to clear this floor';
+    btn.classList.add('danger');
+    resetArmed = setTimeout(disarm, 3000);
+    return;
+  }
+  disarm();
+  forgetFloor();
+  boot(true);
+  closePopup('help').then(resume);
 });
 
 $('btn-speed').addEventListener('click', () => {
@@ -567,10 +589,10 @@ addEventListener('keydown', (e) => {
   if (e.key === 'Escape' && placing) {
     stopPlacing();
     sfx.back?.();
-  } else if (e.key === 'b') {
-    openStore();
-  } else if (e.key === 't') {
-    openTech();
+  } else if (/^[1-9]$/.test(e.key) && !document.querySelector('.overlay:not([hidden])')) {
+    // The number keys pick from the build bar, in the order it shows.
+    const btn = $('dock').children[Number(e.key) - 1];
+    if (btn) pickTool(btn.dataset.key);
   } else if (e.key === ' ') {
     e.preventDefault();
     speedStep = speedStep === 0 ? 1 : 0;
@@ -583,6 +605,8 @@ addEventListener('keydown', (e) => {
 
 addEventListener('resize', () => renderer.resize());
 document.fonts?.ready.then(() => renderer.resize());
+addEventListener('pagehide', writeFloor);
+document.addEventListener('visibilitychange', () => document.hidden && writeFloor());
 
 // ---- frame loop ----
 
@@ -604,14 +628,17 @@ function frame(now) {
     },
     now / 1000
   );
-  showScore();
+  if (floorDirty && now - floorWritten > 2000) writeFloor();
   requestAnimationFrame(frame);
 }
 
 setSoundEnabled(save.sound);
 $('sound-icon').setAttribute('href', save.sound ? '#i-sound' : '#i-mute');
 fillRecipes();
-boot();
+if (boot()) {
+  $('title-kicker').textContent = 'Welcome back';
+  $('play-text').textContent = 'Back to the floor';
+}
 requestAnimationFrame(frame);
 
 // Lets a browser test poke at the running factory; inert for players.
@@ -631,7 +658,7 @@ if (new URLSearchParams(location.search).has('test')) {
     },
     boot,
     resume,
-    makeableColors,
+    writeFloor: () => (touchFloor(), writeFloor()),
   };
   window.factoryDraft = { createDraft, draftTo, commitDraft };
 }

@@ -1,7 +1,14 @@
-// The factory running itself: ore drops, items ride belts, mixers combine them
-// and depots get their orders. Pure logic, driven by `tick(dt)` in seconds.
-import { TUNE, findRecipe, creditsFor } from './config.js?v=5';
-import { KIND, freeSpot, nextArrival } from './world.js?v=5';
+// The factory running itself: ore drops, items ride belts, mixers and presses
+// combine them, and the hub takes whatever its goal asks for. Pure logic,
+// driven by `tick(dt)` in seconds.
+import { TUNE, GOALS, findRecipe, findPress } from './config.js?v=6';
+import { KIND } from './world.js?v=6';
+
+// The machines that turn a pair from their buffer into something new.
+const CRAFTERS = {
+  [KIND.MIXER]: { find: findRecipe, time: TUNE.mixTime },
+  [KIND.PRESS]: { find: findPress, time: TUNE.pressTime },
+};
 
 export class Sim {
   constructor(world, hooks = {}) {
@@ -9,44 +16,37 @@ export class Sim {
     this.capOf = (b) => world.caps[b.kind];
     this.hooks = hooks;
     this.time = 0;
-    this.score = 0;
-    this.delivered = 0;
-    this.spawnIn = TUNE.firstSpawn;
-    this.spawnGap = TUNE.firstSpawn;
-    this.over = false;
-    this.relaxed = false;
-    this.stalled = false;
-    // Stagger the opening floor so it pops in when the run starts.
+    this.delivered = 0; // items the hub has taken since the floor was opened
+    // Stagger the floor so it pops in when the game starts.
     this.world.buildings.forEach((b, i) => (b.born = 0.05 + i * 0.09));
   }
 
-  // Belt lookup rebuilt each tick: cheap at this scale and always in step with
-  // whatever the player just drew or deleted.
-  index() {
+  // The goal the hub is on, or null once the ladder is finished.
+  get goal() {
+    return GOALS[this.world.goal.index] ?? null;
+  }
+
+  // Belts leaving each building, rebuilt each tick: cheap at this scale and
+  // always in step with whatever the player just drew or deleted.
+  outgoing() {
     const out = new Map();
-    const into = new Map();
     for (const belt of this.world.belts) {
       if (!out.has(belt.from)) out.set(belt.from, []);
       out.get(belt.from).push(belt);
-      if (!into.has(belt.to)) into.set(belt.to, []);
-      into.get(belt.to).push(belt);
     }
-    return { out, into };
+    return out;
   }
 
   tick(dt) {
-    if (this.over) return;
     this.time += dt;
-    const { out } = this.index();
+    const out = this.outgoing();
 
     for (const belt of this.world.belts) this.moveBelt(belt, dt);
     for (const b of this.world.buildings) {
       if (b.kind === KIND.DEPOSIT) this.tickDeposit(b, dt, out.get(b.id));
-      else if (b.kind === KIND.MIXER) this.tickMixer(b, dt, out.get(b.id));
+      else if (CRAFTERS[b.kind]) this.tickCrafter(b, dt, out.get(b.id));
       else if (b.kind === KIND.SPLITTER) this.dispatch(b, out.get(b.id));
-      else this.tickDepot(b, dt);
     }
-    this.tickSpawn(dt);
   }
 
   // ---- belts ----
@@ -64,22 +64,18 @@ export class Sim {
     }
     const head = belt.items[0];
     if (!head || head.d < end - 1e-4) return;
-    const landed = belt.feed ? this.merge(belt.feed, head.color) : this.handOff(belt.to, head.color);
-    if (landed) {
-      belt.items.shift();
-      belt.color = head.color;
-    } else {
-      head.stuck = true;
-    }
+    const landed = belt.feed ? this.merge(belt.feed, head.key) : this.handOff(belt.to, head.key);
+    if (landed) belt.items.shift();
+    else head.stuck = true;
   }
 
-  handOff(buildingId, color) {
+  handOff(buildingId, key) {
     const target = this.world.buildings.find((b) => b.id === buildingId);
-    return Boolean(target) && this.deliver(target, color);
+    return Boolean(target) && this.deliver(target, key);
   }
 
   // Slip an item into another belt's lane, if the traffic there has left a gap.
-  merge(feed, color) {
+  merge(feed, key) {
     const target = this.world.beltById(feed.beltId);
     if (!target) return false;
     const d = Math.min(feed.index, target.len);
@@ -94,35 +90,56 @@ export class Sim {
     const behind = target.items[at];
     if (ahead && ahead.d - d < TUNE.itemGap) return false;
     if (behind && d - behind.d < TUNE.itemGap) return false;
-    target.items.splice(at, 0, { color, d, stuck: false });
+    target.items.splice(at, 0, { key, d, stuck: false });
     return true;
   }
 
-  push(belt, color) {
+  push(belt, key) {
     const tail = belt.items.at(-1);
     if (tail && tail.d < TUNE.itemGap) return false;
-    belt.items.push({ color, d: 0, stuck: false });
+    belt.items.push({ key, d: 0, stuck: false });
     return true;
   }
 
-  // ---- consumers ----
+  // ---- receiving ----
 
-  deliver(b, color) {
-    if (b.kind === KIND.DEPOT && color === b.color) {
-      const paid = creditsFor(color);
-      this.score++;
-      this.delivered++;
-      this.world.stock.credits += paid;
-      b.pending = Math.max(0, b.pending - 1);
-      b.patience = 0; // served, so the clock starts again
-      b.flash = this.time;
-      this.hooks.onDeliver?.(b, color, this.delivered, paid);
-      return true;
-    }
+  deliver(b, key) {
+    if (b.kind === KIND.HUB) return this.toHub(b, key);
     if (b.buffer.length >= this.capOf(b)) return false;
-    b.buffer.push(color);
+    b.buffer.push(key);
     b.flash = this.time;
     return true;
+  }
+
+  // Only the item the goal asks for counts. Anything else is scrapped at the
+  // door rather than left to wait, or one leftover from the last goal could
+  // block a line that is otherwise wired right. Once the last goal is done,
+  // everything counts.
+  toHub(b, key) {
+    const goal = this.goal;
+    if (goal && key !== goal.item) {
+      this.hooks.onReject?.(b, key);
+      return true;
+    }
+    this.delivered++;
+    b.flash = this.time;
+    if (goal) this.world.goal.got++;
+    this.hooks.onDeliver?.(b, key);
+    if (goal && this.world.goal.got >= goal.count) this.finishGoal(goal);
+    return true;
+  }
+
+  // Hand over what the goal gives and move the hub on to the next one.
+  finishGoal(goal) {
+    const { world } = this;
+    world.stock.belts += goal.gives.belts;
+    for (const key of goal.gives.unlocks) {
+      if (world.unlocked.includes(key)) continue;
+      world.unlocked.push(key);
+      world.fresh.push(key);
+    }
+    world.goal = { index: world.goal.index + 1, got: 0 };
+    this.hooks.onGoal?.(goal, this.goal);
   }
 
   // ---- buildings ----
@@ -136,7 +153,10 @@ export class Sim {
     this.dispatch(b, belts);
   }
 
-  tickMixer(b, dt, belts) {
+  // Mixers and presses: take the first pair in the buffer that makes something,
+  // work on it for a moment, then send the result on.
+  tickCrafter(b, dt, belts) {
+    const crafter = CRAFTERS[b.kind];
     if (b.craft > 0) {
       b.craft -= dt;
       if (b.craft <= 0) {
@@ -145,13 +165,13 @@ export class Sim {
         this.hooks.onCraft?.(b, b.out);
       }
     } else if (!b.out) {
-      const recipe = findRecipe(b.buffer);
+      const recipe = crafter.find(b.buffer);
       if (recipe) {
         // Splice the higher index first so the lower one stays valid.
         b.buffer.splice(recipe.j, 1);
         b.buffer.splice(recipe.i, 1);
         b.pendingOut = recipe.out;
-        b.craft = TUNE.mixTime;
+        b.craft = crafter.time;
       }
     }
 
@@ -166,59 +186,26 @@ export class Sim {
       }
     }
 
-    // A full buffer is only a problem when nothing in it will react: that is
-    // one colour flooding in with no partner, and it will never clear itself.
-    const choked = b.buffer.length >= this.capOf(b) && !findRecipe(b.buffer);
-    this.fuse(b, choked, dt);
+    // A full buffer is only a problem when nothing in it will combine: that is
+    // one kind flooding in with no partner, and it will never clear itself.
+    this.choke(b, b.buffer.length >= this.capOf(b) && !crafter.find(b.buffer), dt);
   }
 
-  tickDepot(b, dt) {
-    b.cool -= dt;
-    if (b.cool <= 0) {
-      b.cool += TUNE.demandInterval;
-      b.pending = Math.min(TUNE.demandCap, b.pending + 1);
-    }
-
-    // The dots above a shop are its orders. Leave every one of them unfilled
-    // for long enough and the shop gives up and closes, which is what makes
-    // keeping up matter once a floor is running well. Nothing is on the clock
-    // until the first delivery of the run, so the opening is never lost while
-    // the line is still being drawn, and a new shop is given a while to settle.
-    const settling = this.time - b.born < TUNE.shopGrace;
-    const waiting = b.pending >= TUNE.demandCap && this.delivered > 0 && !settling;
-    if (waiting) b.patience += dt;
-    else b.patience = Math.max(0, b.patience - dt * 3);
-    if (b.patience >= this.world.patienceFuse) {
-      this.hooks.onGiveUp?.(b);
-      this.world.removeBuilding(b);
-      return;
-    }
-
-    // Only the wrong colour can pile up here, since orders are consumed on sight.
-    this.fuse(b, b.buffer.length >= this.capOf(b), dt);
-  }
-
-  // Shared overflow timer: machines sound an alarm, then burn out.
-  fuse(b, choked, dt) {
-    const was = b.jam;
-    const fuse = this.world.jamFuse;
-    if (choked) b.jam = Math.min(fuse, b.jam + dt);
-    else b.jam = Math.max(0, b.jam - dt * 2.5);
+  // A choked machine stalls and flashes until its buffer is dumped. It never
+  // ends the game; the line behind it just stops until you sort it out.
+  choke(b, choked, dt) {
+    const was = b.jam > 0;
+    b.jam = choked ? Math.min(1, b.jam + dt) : Math.max(0, b.jam - dt * 2.5);
     if (!was && b.jam > 0) this.hooks.onJam?.(b);
-    if (was > 0 && b.jam === 0) this.hooks.onCalm?.(b);
-    if (b.jam >= fuse && !this.relaxed) {
-      this.over = true;
-      this.hooks.onFail?.(b);
-    }
+    if (was && b.jam === 0) this.hooks.onCalm?.(b);
   }
 
-  // Dumping a jammed buffer: the escape hatch, paid for in score.
+  // Dumping a choked buffer: the way out when a route goes wrong.
   vent(b) {
     if (!b.buffer.length) return false;
     const dumped = b.buffer.length;
     b.buffer = [];
     b.jam = 0;
-    this.score = Math.max(0, this.score - TUNE.ventCost);
     this.hooks.onVent?.(b, dumped);
     return true;
   }
@@ -233,31 +220,5 @@ export class Sim {
         return;
       }
     }
-  }
-
-  // ---- new arrivals ----
-
-  tickSpawn(dt) {
-    if (this.world.buildings.length >= this.world.maxBuildings) return;
-    this.spawnIn -= dt;
-    if (this.spawnIn > 0) return;
-    this.spawnGap = Math.max(TUNE.minSpawn, this.spawnGap * TUNE.spawnDecay);
-    this.spawnIn = this.spawnGap;
-    const spot = freeSpot(this.world, this.world.rng);
-    if (!spot) return;
-    const plan = nextArrival(this.world, this.world.rng);
-    if (!plan) {
-      // Every colour the floor can make already has its shops. Say so once;
-      // the way out is a new ore deposit from the store.
-      if (!this.stalled) {
-        this.stalled = true;
-        this.hooks.onStalled?.();
-      }
-      return;
-    }
-    this.stalled = false;
-    const b = this.world.addBuilding(plan.kind, spot.x, spot.y, plan.color ? { color: plan.color } : {});
-    b.born = this.time;
-    this.hooks.onSpawn?.(b);
   }
 }

@@ -1,7 +1,7 @@
 // Drawing belts with a finger or a mouse: press a producer, drag, release on a
 // machine. The path grows cell by cell under the cursor and can be walked back.
-import { canStartFrom, canManage, createDraft, draftTo, commitDraft, draftCost } from './world.js?v=5';
-import { sfx } from './audio.js?v=5';
+import { canStartFrom, canManage, createDraft, draftTo, commitDraft, draftCost } from './world.js?v=6';
+import { sfx } from './audio.js?v=6';
 
 const TAP = 7; // px of travel still counted as a tap
 const HOLD = 650; // ms of stillness before a machine can be picked up
@@ -17,8 +17,7 @@ const REASONS = {
   corner: 'No room to bridge over a corner',
   busy: 'Too many belts in that square',
   'bridge-turn': 'A belt has to stay straight across a bridge',
-  'no-bridges': 'Out of bridges — belts cannot cross without one',
-  'no-belts': 'Out of belt tiles',
+  'no-belts': 'Not enough belt tiles — a bridge takes extra',
 };
 
 export class Controls {
@@ -29,7 +28,7 @@ export class Controls {
     this.hooks = hooks;
     this.draft = null;
     this.hover = null;
-    this.placing = null; // a machine bought from the store, waiting to be dropped
+    this.placing = null; // a machine from the build list, waiting to be dropped
     this.cell = null; // cell under the pointer, for the placement ghost
     this.holdOn = null; // machine being pressed, once the ring starts filling
     this.holdAt = 0;

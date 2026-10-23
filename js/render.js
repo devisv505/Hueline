@@ -1,7 +1,7 @@
 // Everything you see on the factory floor, drawn to one canvas in cell units.
-import { COLORS, TUNE } from './config.js?v=5';
-import { KIND } from './world.js?v=5';
-import { makeRng } from './rng.js?v=5';
+import { COLORS, TUNE, colorOf, sizeOf } from './config.js?v=6';
+import { KIND } from './world.js?v=6';
+import { makeRng } from './rng.js?v=6';
 
 const INK = '#3f4654';
 const PAPER = '#ffffff';
@@ -11,6 +11,7 @@ const ROAD = '#ffffff';
 const ROAD_EDGE = 'rgba(63,70,84,.10)';
 const ALARM = '#ec5a5a';
 const BUILDING = 1.34; // cells across
+const BEAD = [0.165, 0.215, 0.26]; // radius of a bead, a pearl and an orb
 // A joining belt stops just short of the lane's centre line. Its round cap then
 // sits inside the lane, which draws over it, so the two read as one flush T or
 // L. Run it to the centre instead and the cap bulges out the far side.
@@ -256,21 +257,36 @@ export class Renderer {
   }
 
   drawItems(belt) {
-    const { ctx } = this;
     for (const item of belt.items) {
       const p = this.world.pointAt(belt, item.d);
-      const c = COLORS[item.color];
-      this.shadow('rgba(63,70,84,.28)', 4, 2);
-      ctx.fillStyle = c.fill;
-      ctx.beginPath();
-      ctx.arc(p.x, p.y, 0.165, 0, Math.PI * 2);
-      ctx.fill();
-      this.noShadow();
-      ctx.fillStyle = 'rgba(255,255,255,.45)';
-      ctx.beginPath();
-      ctx.arc(p.x - 0.05, p.y - 0.055, 0.055, 0, Math.PI * 2);
-      ctx.fill();
+      this.drawBead(item.key, p.x, p.y);
     }
+  }
+
+  // A bead, pearl or orb: the bigger it is, the more times it was pressed.
+  drawBead(key, x, y, scale = 1) {
+    const { ctx } = this;
+    const size = sizeOf(key);
+    const r = BEAD[size - 1] * scale;
+    const c = COLORS[colorOf(key)];
+    this.shadow('rgba(63,70,84,.28)', 4, 2);
+    ctx.fillStyle = c.fill;
+    ctx.beginPath();
+    ctx.arc(x, y, r, 0, Math.PI * 2);
+    ctx.fill();
+    this.noShadow();
+    if (size > 1) {
+      // A pressed item carries a rim, so a pearl never reads as a big bead.
+      ctx.strokeStyle = c.deep;
+      ctx.lineWidth = r * 0.22;
+      ctx.beginPath();
+      ctx.arc(x, y, r * 0.78, 0, Math.PI * 2);
+      ctx.stroke();
+    }
+    ctx.fillStyle = 'rgba(255,255,255,.45)';
+    ctx.beginPath();
+    ctx.arc(x - r * 0.3, y - r * 0.33, r * 0.33, 0, Math.PI * 2);
+    ctx.fill();
   }
 
   // ---- the belt being drawn right now ----
@@ -325,17 +341,15 @@ export class Renderer {
 
     ctx.save();
     ctx.translate(cx, cy);
-    if (b.jam > 0) {
-      // Rattle harder the closer the machine is to burning out.
-      const k = b.jam / TUNE.jamFuse;
-      ctx.translate(Math.sin(t * 34) * 0.035 * k, 0);
-    }
+    // A stuck machine rattles.
+    if (b.jam > 0) ctx.translate(Math.sin(t * 34) * 0.035 * b.jam, 0);
 
     this.shadow('rgba(63,70,84,.3)', 9, 4);
     if (b.kind === KIND.DEPOSIT) this.drawDeposit(b, half);
     else if (b.kind === KIND.MIXER) this.drawMixer(b, half, t);
+    else if (b.kind === KIND.PRESS) this.drawPress(b, half);
     else if (b.kind === KIND.SPLITTER) this.drawSplitter(b, half);
-    else this.drawDepot(b, half);
+    else this.drawHub(b, half, sim, t);
     this.noShadow();
 
     if (ui.hover === b) {
@@ -349,16 +363,11 @@ export class Renderer {
     ctx.restore();
 
     const cap = this.world.caps[b.kind];
-    if (b.kind === KIND.MIXER) this.drawChips(b, cx, cy + half + 0.26, cap);
-    if (b.kind === KIND.DEPOT) {
-      this.drawOrders(b, cx, cy - half - 0.3, b.patience / this.world.patienceFuse);
-      if (b.buffer.length) this.drawChips(b, cx, cy + half + 0.26, cap);
-    }
+    if (b.kind === KIND.MIXER || b.kind === KIND.PRESS) this.drawChips(b, cx, cy + half + 0.26, cap);
     if ((b.kind === KIND.DEPOSIT || b.kind === KIND.SPLITTER) && b.buffer.length) {
       this.drawChips(b, cx, cy + half + 0.26, cap);
     }
     if (b.jam > 0) this.drawAlarm(b, cx, cy, half, t);
-    else if (b.patience > 0) this.drawImpatience(b, cx, cy, half, t);
   }
 
   drawDeposit(b, half) {
@@ -371,7 +380,7 @@ export class Renderer {
     ctx.fillStyle = 'rgba(255,255,255,.3)';
     roundRect(ctx, -half * 0.62, -half * 0.62, half * 1.24, half * 1.24, half * 0.26);
     ctx.fill();
-    // Three chunks of ore, so a deposit reads differently from a depot.
+    // Three chunks of ore, so a deposit reads differently from a machine.
     ctx.fillStyle = c.deep;
     for (const [dx, dy, r] of [
       [-0.19, 0.1, 0.12],
@@ -398,7 +407,7 @@ export class Renderer {
     const spin = b.craft > 0 ? t * 5 : t * 0.7;
     ctx.save();
     ctx.rotate(spin);
-    ctx.strokeStyle = b.out ? COLORS[b.out].fill : 'rgba(63,70,84,.45)';
+    ctx.strokeStyle = b.out ? COLORS[colorOf(b.out)].fill : 'rgba(63,70,84,.45)';
     ctx.lineWidth = 0.08;
     for (let i = 0; i < 3; i++) {
       ctx.beginPath();
@@ -407,14 +416,14 @@ export class Renderer {
     }
     ctx.restore();
 
-    ctx.fillStyle = b.out ? COLORS[b.out].fill : '#dfe3ea';
+    ctx.fillStyle = b.out ? COLORS[colorOf(b.out)].fill : '#dfe3ea';
     ctx.beginPath();
     ctx.arc(0, 0, half * 0.2, 0, Math.PI * 2);
     ctx.fill();
 
     if (b.craft > 0) {
       const k = 1 - b.craft / TUNE.mixTime;
-      ctx.strokeStyle = COLORS[b.pendingOut]?.fill ?? INK;
+      ctx.strokeStyle = b.pendingOut ? COLORS[colorOf(b.pendingOut)].fill : INK;
       ctx.lineWidth = 0.09;
       ctx.beginPath();
       ctx.arc(0, 0, half * 0.76, -Math.PI / 2, -Math.PI / 2 + k * Math.PI * 2);
@@ -457,27 +466,79 @@ export class Renderer {
     }
   }
 
-  drawDepot(b, half) {
+  // Two plates that close on whatever pair is being pressed, with the result
+  // waiting between them.
+  drawPress(b, half) {
     const { ctx } = this;
-    const c = COLORS[b.color];
-    ctx.fillStyle = '#ffffff';
-    roundRect(ctx, -half, -half, half * 2, half * 2, half * 0.36);
+    ctx.fillStyle = '#f7f8fa';
+    roundRect(ctx, -half, -half, half * 2, half * 2, half * 0.34);
     ctx.fill();
     this.noShadow();
-    // A coloured awning says which order this shop is waiting on.
-    ctx.save();
-    ctx.beginPath();
-    roundRect(ctx, -half, -half, half * 2, half * 2, half * 0.36);
-    ctx.clip();
-    ctx.fillStyle = c.fill;
-    ctx.fillRect(-half, -half, half * 2, half * 0.72);
-    ctx.restore();
-    ctx.fillStyle = c.deep;
-    ctx.beginPath();
-    ctx.arc(0, half * 0.28, half * 0.3, 0, Math.PI * 2);
+    ctx.strokeStyle = 'rgba(63,70,84,.18)';
+    ctx.lineWidth = 0.055;
+    roundRect(ctx, -half + 0.05, -half + 0.05, half * 2 - 0.1, half * 2 - 0.1, half * 0.3);
+    ctx.stroke();
+
+    const k = b.craft > 0 ? 1 - b.craft / TUNE.pressTime : 0;
+    const gap = half * (0.5 - 0.22 * Math.sin(k * Math.PI));
+    ctx.fillStyle = 'rgba(63,70,84,.55)';
+    roundRect(ctx, -half * 0.62, -gap - half * 0.2, half * 1.24, half * 0.2, half * 0.08);
     ctx.fill();
+    roundRect(ctx, -half * 0.62, gap, half * 1.24, half * 0.2, half * 0.08);
+    ctx.fill();
+
+    const shown = b.out ?? b.pendingOut;
+    if (shown) this.drawBead(shown, 0, 0, 0.8);
+    else {
+      ctx.fillStyle = '#dfe3ea';
+      ctx.beginPath();
+      ctx.arc(0, 0, half * 0.16, 0, Math.PI * 2);
+      ctx.fill();
+    }
   }
 
+  // The hub: the goal item in the middle and a ring that fills as it arrives.
+  drawHub(b, half, sim, t) {
+    const { ctx } = this;
+    const goal = sim.goal;
+    const r = half * 1.08;
+    ctx.fillStyle = INK;
+    ctx.beginPath();
+    ctx.arc(0, 0, r, 0, Math.PI * 2);
+    ctx.fill();
+    this.noShadow();
+
+    ctx.strokeStyle = 'rgba(255,255,255,.16)';
+    ctx.lineWidth = 0.12;
+    ctx.beginPath();
+    ctx.arc(0, 0, r * 0.78, 0, Math.PI * 2);
+    ctx.stroke();
+    const color = goal ? COLORS[colorOf(goal.item)].fill : '#60bd81';
+    const k = goal ? this.world.goal.got / goal.count : 1;
+    if (k > 0) {
+      ctx.strokeStyle = color;
+      ctx.beginPath();
+      ctx.arc(0, 0, r * 0.78, -Math.PI / 2, -Math.PI / 2 + k * Math.PI * 2);
+      ctx.stroke();
+    }
+
+    // A white face, so every goal colour reads against it, Slate included.
+    ctx.fillStyle = PAPER;
+    ctx.beginPath();
+    ctx.arc(0, 0, r * 0.6, 0, Math.PI * 2);
+    ctx.fill();
+    if (goal) {
+      const bob = Math.sin(t * 2.4) * 0.025;
+      this.drawBead(goal.item, 0, bob, 1.45);
+    } else {
+      ctx.fillStyle = '#60bd81';
+      ctx.beginPath();
+      ctx.arc(0, 0, r * 0.32, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+
+  // What a machine is holding. Pressed items show as rounder chips.
   drawChips(b, cx, cy, cap) {
     const { ctx } = this;
     const w = 0.17;
@@ -485,74 +546,24 @@ export class Renderer {
     const total = cap * w + (cap - 1) * gap;
     for (let i = 0; i < cap; i++) {
       const x = cx - total / 2 + i * (w + gap);
-      const color = b.buffer[i];
-      ctx.fillStyle = color ? COLORS[color].fill : 'rgba(63,70,84,.1)';
-      roundRect(ctx, x, cy - w / 2, w, w, 0.05);
+      const key = b.buffer[i];
+      ctx.fillStyle = key ? COLORS[colorOf(key)].fill : 'rgba(63,70,84,.1)';
+      roundRect(ctx, x, cy - w / 2, w, w, key && sizeOf(key) > 1 ? w / 2 : 0.05);
       ctx.fill();
     }
   }
 
-  // The dots are the shop's orders. They turn red as it runs out of patience.
-  drawOrders(b, cx, cy, impatience = 0) {
-    const { ctx } = this;
-    const c = COLORS[b.color];
-    const urgent = Math.min(1, Math.max(0, impatience));
-    const fill = urgent > 0 ? mixHex(c.fill, ALARM, urgent) : c.fill;
-    const r = 0.13 * (1 + urgent * 0.25);
-    const gap = 0.36;
-    const total = (TUNE.demandCap - 1) * gap;
-    for (let i = 0; i < TUNE.demandCap; i++) {
-      const x = cx - total / 2 + i * gap;
-      if (i < b.pending) {
-        this.shadow('rgba(63,70,84,.22)', 3, 2);
-        ctx.fillStyle = fill;
-        ctx.beginPath();
-        ctx.arc(x, cy, r, 0, Math.PI * 2);
-        ctx.fill();
-        this.noShadow();
-      } else {
-        ctx.strokeStyle = 'rgba(63,70,84,.16)';
-        ctx.lineWidth = 0.04;
-        ctx.beginPath();
-        ctx.arc(x, cy, r * 0.8, 0, Math.PI * 2);
-        ctx.stroke();
-      }
-    }
-  }
-
-  // A shop losing patience: the same language as an overflow, a shade calmer.
-  drawImpatience(b, cx, cy, half, t) {
-    const { ctx } = this;
-    const k = Math.min(1, b.patience / this.world.patienceFuse);
-    const r = half + 0.28 + Math.sin(t * 5) * 0.03 * k;
-    ctx.strokeStyle = `rgba(236,90,90,${0.18 + k * 0.4})`;
-    ctx.lineWidth = 0.06;
-    ctx.beginPath();
-    ctx.arc(cx, cy, r, 0, Math.PI * 2);
-    ctx.stroke();
-    ctx.strokeStyle = ALARM;
-    ctx.lineWidth = 0.11;
-    ctx.beginPath();
-    ctx.arc(cx, cy, r, -Math.PI / 2, -Math.PI / 2 + k * Math.PI * 2);
-    ctx.stroke();
-  }
-
+  // A stuck machine: a pulsing ring and a badge to tap.
   drawAlarm(b, cx, cy, half, t) {
     const { ctx } = this;
-    const k = b.jam / TUNE.jamFuse;
     const r = half + 0.3 + Math.sin(t * 7) * 0.05;
-    ctx.strokeStyle = `rgba(236,90,90,${0.3 + k * 0.5})`;
-    ctx.lineWidth = 0.07;
+    ctx.strokeStyle = `rgba(236,90,90,${0.45 + Math.sin(t * 7) * 0.25})`;
+    ctx.lineWidth = 0.1;
     ctx.beginPath();
     ctx.arc(cx, cy, r, 0, Math.PI * 2);
     ctx.stroke();
-    ctx.strokeStyle = ALARM;
-    ctx.lineWidth = 0.13;
-    ctx.beginPath();
-    ctx.arc(cx, cy, r, -Math.PI / 2, -Math.PI / 2 + k * Math.PI * 2);
-    ctx.stroke();
 
-    // Tap-to-vent badge.
+    // Tap-to-dump badge.
     ctx.fillStyle = ALARM;
     this.shadow('rgba(236,90,90,.5)', 6, 2);
     ctx.beginPath();
@@ -584,7 +595,7 @@ export class Renderer {
     ctx.stroke();
   }
 
-  // The machine you have just bought, following the cursor until you drop it.
+  // The machine being placed, following the cursor until you drop it.
   drawGhost(placing, cell, ok, t) {
     const { ctx } = this;
     const half = BUILDING / 2;
@@ -598,6 +609,7 @@ export class Renderer {
     const stand = { ...placing, buffer: [], craft: 0, out: null, pendingOut: null };
     if (placing.kind === KIND.DEPOSIT) this.drawDeposit(stand, half);
     else if (placing.kind === KIND.SPLITTER) this.drawSplitter(stand, half);
+    else if (placing.kind === KIND.PRESS) this.drawPress(stand, half);
     else this.drawMixer(stand, half, t);
     this.noShadow();
     ctx.restore();
@@ -611,15 +623,6 @@ export class Renderer {
     ctx.stroke();
     ctx.setLineDash([]);
   }
-}
-
-// Blend two hex colours, for a dot shading from its own colour towards alarm.
-function mixHex(from, to, k) {
-  const read = (hex) => [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16));
-  const a = read(from);
-  const b = read(to);
-  const mixed = a.map((v, i) => Math.round(v + (b[i] - v) * k));
-  return `rgb(${mixed.join(',')})`;
 }
 
 function roundRect(ctx, x, y, w, h, r) {
