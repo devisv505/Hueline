@@ -80,10 +80,6 @@
       <circle cx="12" cy="12" r="8.4" fill="none" stroke="currentColor" stroke-width="2.4"/>
       <circle cx="12" cy="12" r="3.6"/>
     </symbol>
-    <symbol id="i-kit" viewBox="0 0 24 24">
-      <rect x="3" y="8" width="18" height="12" rx="3" fill="none" stroke="currentColor" stroke-width="2.2"/>
-      <path d="M8.6 8V6.4a2 2 0 0 1 2-2h2.8a2 2 0 0 1 2 2V8M3 13.4h18" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/>
-    </symbol>
     <symbol id="i-help" viewBox="0 0 24 24">
       <path d="M8.6 8.8a3.4 3.4 0 1 1 4.3 3.3c-1 .3-1.5 1.1-1.5 2.1v.5" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/>
       <circle cx="11.4" cy="18.6" r="1.6"/>
@@ -120,7 +116,6 @@
         <span class="pill" id="pill-belts" title="Belt tiles left">
           <svg class="icon"><use href="#i-belt"></use></svg><b id="belt-count">0</b>
         </span>
-        <button class="pill shop" id="btn-build"><svg class="icon"><use href="#i-kit"></use></svg><b>Build</b></button>
         <button class="pill ghost" id="btn-speed" aria-label="Speed"><svg class="icon"><use href="#i-play" id="speed-icon"></use></svg></button>
         <button class="pill ghost" id="btn-sound" aria-label="Sound"><svg class="icon"><use href="#i-sound" id="sound-icon"></use></svg></button>
         <button class="pill ghost" id="btn-help" aria-label="How to play"><svg class="icon"><use href="#i-help"></use></svg></button>
@@ -136,6 +131,8 @@
         <button class="chip-btn" id="btn-cancel-place">Cancel</button>
       </div>
     </main>
+
+    <nav class="dock" id="dock" aria-label="Build"></nav>
 
     <footer class="board">
       <h1 class="factory-name" id="factory-name">Prism Works</h1>
@@ -179,21 +176,11 @@
         <li><b>The hub wants one item at a time.</b> Only that item counts, and anything else is scrapped at the door. Deliver the count and the next goal arrives, unlocking new buildings and adding belt tiles.</li>
         <li><b>Mixers combine two different colours</b> of the same size. <b>Presses</b> squeeze two matching items into one a size up: two beads make a pearl, two pearls an orb.</li>
         <li><b>A machine that fills up with things it cannot use</b> stops and flashes. Tap it to dump its buffer.</li>
-        <li><b>Build</b> as many of anything you have unlocked as you like. <b>Press and hold</b> a machine to move or remove it.</li>
+        <li><b>Pick a building</b> from the bar under the floor, then tap an empty spot. Build as many as you like — on a keyboard the number keys pick them too. <b>Press and hold</b> a machine on the floor to move or remove it.</li>
       </ul>
       <div class="recipe-grid" id="recipe-grid"></div>
       <button class="btn" data-close><span>Got it</span></button>
       <button class="btn link" id="btn-reset">Start a new factory</button>
-    </div>
-  </div>
-
-  <div class="overlay" id="build" hidden>
-    <div class="card">
-      <button class="round close" data-close aria-label="Close"><svg class="icon"><use href="#i-close"></use></svg></button>
-      <p class="kicker pink">Build</p>
-      <h2>Put something down</h2>
-      <div class="choices" id="build-list"></div>
-      <p class="card-note">Build as many as you like — belt tiles are the only limit. Finished goals unlock more. Hold a machine on the floor to move or remove it.</p>
     </div>
   </div>
 

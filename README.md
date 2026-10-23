@@ -79,11 +79,12 @@ otherwise wired right.
    a belt onto a running lane and its load merges in, so two sources share one
    line. Splitting a line still takes a splitter — merging is free, branching
    is not.
-3. **Goals unlock buildings, and you build as many as you like.** The Build
-   button in the header lists everything unlocked so far, and turns pink when a
-   goal has added something you have not looked at yet. Pick one and **drop it
-   wherever you want** — the board shows a ghost under the cursor and a green
-   box when the spot is clear. Machines need a cell of air around them and
+3. **Goals unlock buildings, and you build as many as you like.** The bar
+   under the floor holds a button for everything unlocked so far, and a pink dot
+   marks one a goal has just added. Tap a button (or press its number key on a
+   keyboard) and **drop it wherever you want** — the board shows a ghost under
+   the cursor and a green box when the spot is clear. Tap the button again, or
+   press Escape, to change your mind. Machines need a cell of air around them and
    cannot sit on a running belt, so the floor itself is the other thing that
    runs out. **Press and hold a machine** and a ring closes around it; when it
    fills, the machine comes up in hand to drop somewhere else or remove. Either
@@ -120,7 +121,7 @@ on a machine or the hub to lay it, anywhere else to throw it away.
 | `js/sim.js` | One tick: ore drops, items move, mixers and presses craft, the hub counts |
 | `js/render.js` | The whole canvas: paper, districts, belts, bridges, machines, the hub |
 | `js/input.js` | Drawing, erasing and tapping |
-| `js/main.js` | Screens, the build list, the goal board and card, saving, the frame loop |
+| `js/main.js` | Screens, the build bar, the goal board and card, saving, the frame loop |
 | `js/fx.js`, `js/audio.js` | Bursts, toasts, confetti and synthesized blips |
 | `tests/factory.test.mjs` | The rules above, as assertions |
 | `docs/ASSET_PROMPTS.md` | Prompts for generating the icon art |

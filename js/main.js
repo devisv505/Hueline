@@ -1,4 +1,4 @@
-// Screens, the build list, the goal board and the frame loop that ties the factory together.
+// Screens, the build bar, the goal board and the frame loop that ties the factory together.
 import { COLORS, TUNE, GOALS, BUILDS, MACHINES, FACTORY_NAMES, itemName, colorOf, sizeOf, buildParts, buildKey } from './config.js?v=6';
 import { World, KIND, seedWorld, saveWorld, loadWorld, canPlaceAt, canManage, inboundBelts, createDraft, draftTo, commitDraft, draftCost } from './world.js?v=6';
 import { Sim } from './sim.js?v=6';
@@ -232,7 +232,7 @@ function showStock() {
   const belts = world.stock.belts - (draft ? draftCost(draft).belts : 0);
   $('belt-count').textContent = belts;
   $('pill-belts').classList.toggle('low', belts <= 6);
-  $('btn-build').classList.toggle('fresh', world.fresh.length > 0);
+  renderDock();
 }
 
 // The board under the floor: what the hub wants, how many have arrived, and a
@@ -287,39 +287,56 @@ function advanceCoach() {
   showCoach(lines[step], step === 1 ? 3500 : 0);
 }
 
-// ---- the build list, and putting machines down ----
+// ---- the build bar, and putting machines down ----
 
 const machineName = ({ kind, color }) => (kind === KIND.DEPOSIT ? `${COLORS[color].name} deposit` : kind);
 const machineInfo = (kind) => MACHINES[kind === KIND.DEPOSIT ? 'ore' : kind];
 
-function buildRow(key) {
+// One button per building unlocked so far, in a fixed order so a machine is
+// always where you last saw it. The buttons are only rebuilt when that set
+// changes, so a newly unlocked one can pop in on its own.
+let dockKeys = '';
+function renderDock() {
+  const keys = BUILDS.filter((key) => world.unlocked.includes(key));
+  if (keys.join() !== dockKeys) {
+    const before = dockKeys ? dockKeys.split(',') : null;
+    dockKeys = keys.join();
+    $('dock').replaceChildren(...keys.map((key, i) => dockButton(key, i, Boolean(before) && !before.includes(key))));
+  }
+  const armed = placing && !placing.moving ? buildKey(placing.kind, placing.color) : null;
+  for (const btn of $('dock').children) {
+    btn.classList.toggle('on', btn.dataset.key === armed);
+    btn.classList.toggle('fresh', world.fresh.includes(btn.dataset.key));
+  }
+}
+
+function dockButton(key, i, arriving) {
   const { kind, color } = buildParts(key);
   const info = machineInfo(kind);
   const btn = document.createElement('button');
-  btn.className = 'choice';
-  btn.innerHTML =
-    `<span class="badge"${color ? ` style="color:${COLORS[color].fill}"` : ''}><svg class="icon"><use href="${info.icon}"></use></svg></span>` +
-    `<span class="choice-text"><h3>${color ? machineName({ kind, color }) : info.label}</h3><p>${info.note}</p></span>` +
-    (world.fresh.includes(key) ? '<span class="price new">New</span>' : '');
-  btn.addEventListener('click', () => {
-    sfx.click();
-    closePopup('build').then(() => startPlacing({ kind, color }));
-  });
+  btn.className = `dock-btn${arriving ? ' arrive' : ''}`;
+  btn.dataset.key = key;
+  btn.title = `${color ? machineName({ kind, color }) : info.label} (${i + 1}) — ${info.note}`;
+  btn.setAttribute('aria-label', `Build a ${machineName({ kind, color })}`);
+  if (color) btn.style.setProperty('--tint', COLORS[color].fill);
+  btn.innerHTML = `<svg class="icon"><use href="${info.icon}"></use></svg><small>${i + 1}</small><i class="dot"></i>`;
+  btn.addEventListener('click', () => pickTool(key));
   return btn;
 }
 
-// Everything unlocked so far, in a fixed order so a machine is always where
-// you last saw it. Opening the list is what clears the New tags.
-function openBuild() {
-  $('build-list').replaceChildren(...BUILDS.filter((key) => world.unlocked.includes(key)).map(buildRow));
-  if (world.fresh.length) {
-    world.fresh = [];
-    showStock();
+// Picking a building arms it for one drop on the floor; picking it again
+// changes your mind. Picking it is also what clears its New dot.
+function pickTool(key) {
+  sfx.click();
+  if (placing && !placing.moving && buildKey(placing.kind, placing.color) === key) {
+    stopPlacing();
+    return;
+  }
+  if (world.fresh.includes(key)) {
+    world.fresh = world.fresh.filter((k) => k !== key);
     touchFloor();
   }
-  sfx.click();
-  pause();
-  openPopup('build');
+  startPlacing(buildParts(key));
 }
 
 let placing = null;
@@ -331,6 +348,7 @@ function startPlacing(what) {
   $('btn-scrap').hidden = true;
   $('placing-bar').hidden = false;
   $('coach').hidden = true;
+  renderDock();
   resume();
 }
 
@@ -343,6 +361,7 @@ function pickUp(building) {
   $('btn-scrap').hidden = false;
   $('placing-bar').hidden = false;
   $('coach').hidden = true;
+  renderDock();
   sfx.grab();
   resume();
 }
@@ -352,6 +371,7 @@ function stopPlacing() {
   controls.setPlacing(null);
   $('placing-bar').hidden = true;
   $('btn-scrap').hidden = true;
+  renderDock();
 }
 
 // Removing a machine pulls up its belts and hands their tiles back; it can be
@@ -501,7 +521,6 @@ $('btn-help').addEventListener('click', () => {
   openPopup('help');
 });
 
-$('btn-build').addEventListener('click', openBuild);
 
 $('btn-done').addEventListener('click', () => {
   sfx.click();
@@ -570,8 +589,10 @@ addEventListener('keydown', (e) => {
   if (e.key === 'Escape' && placing) {
     stopPlacing();
     sfx.back?.();
-  } else if (e.key === 'b' || e.key === 'k') {
-    openBuild();
+  } else if (/^[1-9]$/.test(e.key) && !document.querySelector('.overlay:not([hidden])')) {
+    // The number keys pick from the build bar, in the order it shows.
+    const btn = $('dock').children[Number(e.key) - 1];
+    if (btn) pickTool(btn.dataset.key);
   } else if (e.key === ' ') {
     e.preventDefault();
     speedStep = speedStep === 0 ? 1 : 0;
