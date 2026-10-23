@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mix, findRecipe, TUNE, GOODS, TECHS, techCost, creditsFor } from '../js/config.js';
-import { World, KIND, seedWorld, createDraft, draftTo, commitDraft, draftCost, makeableColors, canPlaceAt, canManage, mergeTargetAt, inboundBelts } from '../js/world.js';
+import { mix, mixItems, pressItems, findRecipe, findPress, itemKey, colorOf, sizeOf, itemName, TUNE, GOALS, START_UNLOCKED, BUILDS, buildParts, buildKey } from '../js/config.js';
+import { World, KIND, seedWorld, saveWorld, loadWorld, createDraft, draftTo, commitDraft, draftCost, canPlaceAt, canManage, mergeTargetAt, inboundBelts } from '../js/world.js';
 import { Sim } from '../js/sim.js';
 
 const connect = (world, from, to) => {
@@ -11,6 +11,22 @@ const connect = (world, from, to) => {
 };
 
 const find = (world, kind, color) => world.buildings.find((b) => b.kind === kind && (!color || b.color === color));
+const goalFor = (item) => ({ index: GOALS.findIndex((g) => g.item === item), got: 0 });
+const run = (sim, seconds) => {
+  for (let i = 0; i < 60 * seconds; i++) sim.tick(1 / 60);
+};
+
+// The opening floor with a mixer between the ores and the hub, and the hub
+// asking for Fern: the shape most of these tests want.
+const fernFloor = (seed = 3) => {
+  const world = seedWorld(new World(seed));
+  const hub = find(world, KIND.HUB);
+  const mixer = world.addBuilding(KIND.MIXER, hub.x - 3, hub.y);
+  world.goal = goalFor('green');
+  return { world, hub, mixer, blue: find(world, KIND.DEPOSIT, 'blue'), yellow: find(world, KIND.DEPOSIT, 'yellow') };
+};
+
+// ---- colours and items ----
 
 test('mixing is set union, and only when both sides add something', () => {
   assert.equal(mix('blue', 'yellow'), 'green');
@@ -32,10 +48,51 @@ test('findRecipe picks a pair that reacts and ignores one that does not', () => 
   assert.deepEqual([r.i, r.j, r.out], [0, 2, 'green']);
 });
 
+test('an item is a colour and a size, and a plain bead is just its colour', () => {
+  assert.equal(itemKey('blue'), 'blue');
+  assert.equal(itemKey('blue', 2), 'blue:2');
+  assert.equal(colorOf('green:3'), 'green');
+  assert.equal(sizeOf('green'), 1);
+  assert.equal(sizeOf('green:3'), 3);
+  assert.equal(itemName('yellow:2'), 'Amber pearl');
+  assert.equal(itemName('blue', 10), 'Cobalt beads');
+});
+
+test('only items of the same size mix, and the mix keeps that size', () => {
+  assert.equal(mixItems('red', 'blue'), 'purple');
+  assert.equal(mixItems('red:2', 'blue:2'), 'purple:2');
+  assert.equal(mixItems('red', 'blue:2'), null, 'a bead and a pearl do not react');
+  assert.equal(mixItems('green:2', 'blue:2'), null, 'the colour rule still holds');
+});
+
+test('a press turns two matching items into one a size up, as far as an orb', () => {
+  assert.equal(pressItems('yellow', 'yellow'), 'yellow:2');
+  assert.equal(pressItems('yellow:2', 'yellow:2'), 'yellow:3');
+  assert.equal(pressItems('yellow:3', 'yellow:3'), null, 'an orb is as big as it gets');
+  assert.equal(pressItems('yellow', 'blue'), null);
+  assert.equal(pressItems('yellow', 'yellow:2'), null, 'sizes have to match too');
+  const r = findPress(['blue', 'yellow', 'blue']);
+  assert.deepEqual([r.i, r.j, r.out], [0, 2, 'blue:2']);
+});
+
+test('build keys name a machine, or a deposit and its colour', () => {
+  assert.deepEqual(buildParts('ore:red'), { kind: KIND.DEPOSIT, color: 'red' });
+  assert.deepEqual(buildParts('mixer'), { kind: KIND.MIXER, color: null });
+  assert.equal(buildKey(KIND.DEPOSIT, 'red'), 'ore:red');
+  assert.equal(buildKey(KIND.PRESS, null), 'press');
+});
+
+test('everything a goal unlocks is something the build list can place', () => {
+  const unlocks = [...START_UNLOCKED, ...GOALS.flatMap((g) => g.gives.unlocks)];
+  for (const key of unlocks) assert.ok(BUILDS.includes(key), `${key} is not on the build list`);
+  assert.equal(new Set(unlocks).size, unlocks.length, 'nothing is unlocked twice');
+  assert.ok(GOALS.every((g) => g.gives.belts > 0), 'every goal adds belt tiles');
+});
+
+// ---- drawing belts ----
+
 test('a drawn belt runs from building to building and costs its inner cells', () => {
-  const world = seedWorld(new World(11));
-  const mixer = find(world, KIND.MIXER);
-  const blue = find(world, KIND.DEPOSIT, 'blue');
+  const { world, mixer, blue } = fernFloor(11);
   const draft = createDraft(world, blue);
   draftTo(world, draft, mixer);
 
@@ -66,26 +123,26 @@ test('dragging back over the path shortens it again', () => {
   assert.equal(draftCost(draft).belts, 2);
 });
 
-test('ore deposits only send and belts never double up', () => {
-  const world = seedWorld(new World(2));
-  const blue = find(world, KIND.DEPOSIT, 'blue');
-  const yellow = find(world, KIND.DEPOSIT, 'yellow');
-  const mixer = find(world, KIND.MIXER);
+test('deposits only send, the hub only receives, and belts never double up', () => {
+  const { world, hub, mixer, blue } = fernFloor(2);
 
   const toOre = createDraft(world, mixer);
   draftTo(world, toOre, blue);
   assert.equal(toOre.end, null, 'a deposit cannot receive');
   assert.equal(toOre.blocked, 'kind');
 
+  const fromHub = createDraft(world, hub);
+  draftTo(world, fromHub, mixer);
+  assert.equal(fromHub.end, null, 'the hub is the end of the line');
+
   connect(world, blue, mixer);
   const again = createDraft(world, blue);
   draftTo(world, again, mixer);
   assert.equal(again.end, null, 'the same pair cannot be wired twice');
   assert.equal(again.blocked, 'duplicate');
-  assert.ok(yellow);
 });
 
-test('belts cannot cross without a bridge, and a bridge is spent when they do', () => {
+test('belts cannot cross without a bridge, and a bridge costs extra tiles', () => {
   const world = new World(1);
   world.cols = 11;
   world.rows = 11;
@@ -93,42 +150,46 @@ test('belts cannot cross without a bridge, and a bridge is spent when they do', 
   const dst = world.addBuilding(KIND.MIXER, 5, 10);
   const src2 = world.addBuilding(KIND.DEPOSIT, 0, 5, { color: 'yellow' });
   const dst2 = world.addBuilding(KIND.MIXER, 10, 5);
+  connect(world, src, dst); // straight down the middle, so there is no way round
 
-  connect(world, src, dst); // straight down the middle
-  world.stock.bridges = 0;
-  const blocked = createDraft(world, src2);
-  draftTo(world, blocked, dst2);
-  assert.equal(blocked.end, null);
-  assert.equal(blocked.blocked, 'no-bridges');
-  assert.ok(blocked.cells.length <= 5, 'the path stops at the belt it cannot cross');
+  // Nine cells across plus the bridge is more than eight tiles will pay for.
+  world.stock.belts = 8;
+  const short = createDraft(world, src2);
+  draftTo(world, short, dst2);
+  assert.equal(short.end, null);
+  assert.equal(short.blocked, 'no-belts');
+  assert.ok(draftCost(short).belts <= 8, 'the line shown is only as long as the tiles in hand');
 
-  world.stock.bridges = 1;
+  world.stock.belts = 40;
   const crossing = createDraft(world, src2);
   draftTo(world, crossing, dst2);
   assert.equal(crossing.end, dst2);
   assert.equal(crossing.bridges.length, 1);
   assert.deepEqual(crossing.bridges[0], { x: 5, y: 5 });
+  const cost = draftCost(crossing);
+  assert.equal(cost.belts, crossing.cells.length - 2 + TUNE.bridgeTiles);
 
-  commitDraft(world, crossing);
-  assert.equal(world.stock.bridges, 0, 'the bridge is paid for');
+  const belt = commitDraft(world, crossing);
+  assert.equal(world.stock.belts, 40 - cost.belts, 'the bridge is paid for in tiles');
+  world.removeBelt(belt);
+  assert.equal(world.stock.belts, 40, 'and comes back with the belt');
 });
 
 test('however the floor is wired, belts only ever meet on a bridge', () => {
   const world = new World(77);
   world.stock.belts = 4000;
-  world.stock.bridges = 400;
-  const kinds = [KIND.DEPOSIT, KIND.MIXER, KIND.DEPOT];
+  const kinds = [KIND.DEPOSIT, KIND.MIXER, KIND.PRESS];
   for (let i = 0; i < 12; i++) {
     const spot = { x: 1 + world.rng.int(world.cols - 2), y: 1 + world.rng.int(world.rows - 2) };
     if (world.buildingAt(spot.x, spot.y)) continue;
     const kind = kinds[i % 3];
-    world.addBuilding(kind, spot.x, spot.y, kind === KIND.MIXER ? {} : { color: 'blue' });
+    world.addBuilding(kind, spot.x, spot.y, kind === KIND.DEPOSIT ? { color: 'blue' } : {});
   }
 
   for (let i = 0; i < 120; i++) {
     const from = world.buildings[world.rng.int(world.buildings.length)];
     const to = world.buildings[world.rng.int(world.buildings.length)];
-    if (from === to || (from.kind !== KIND.DEPOSIT && from.kind !== KIND.MIXER)) continue;
+    if (from === to) continue;
     const draft = createDraft(world, from);
     draftTo(world, draft, to);
     if (draft.end) commitDraft(world, draft);
@@ -150,91 +211,171 @@ test('however the floor is wired, belts only ever meet on a bridge', () => {
   }
 });
 
-test('removing a belt hands the tiles and bridges back', () => {
-  const world = seedWorld(new World(9));
+test('removing a belt hands the tiles back', () => {
+  const { world, mixer, blue } = fernFloor(9);
   const before = { ...world.stock };
-  const belt = connect(world, find(world, KIND.DEPOSIT, 'blue'), find(world, KIND.MIXER));
+  const belt = connect(world, blue, mixer);
   assert.ok(world.stock.belts < before.belts);
   world.removeBelt(belt);
   assert.deepEqual(world.stock, before);
   assert.equal(world.beltsAt(belt.cells[1].x, belt.cells[1].y).length, 0);
 });
 
-test('two ores reach a mixer, come out mixed and are delivered', () => {
-  const world = seedWorld(new World(3));
-  const mixer = find(world, KIND.MIXER);
-  connect(world, find(world, KIND.DEPOSIT, 'blue'), mixer);
-  connect(world, find(world, KIND.DEPOSIT, 'yellow'), mixer);
-  connect(world, mixer, find(world, KIND.DEPOT));
+// ---- the line running ----
+
+test('two ores reach a mixer, come out mixed and count towards the goal', () => {
+  const { world, hub, mixer, blue, yellow } = fernFloor();
+  connect(world, blue, mixer);
+  connect(world, yellow, mixer);
+  connect(world, mixer, hub);
 
   const made = [];
-  const sim = new Sim(world, { onCraft: (b, color) => made.push(color) });
-  for (let i = 0; i < 60 * 30; i++) sim.tick(1 / 60);
+  const sim = new Sim(world, { onCraft: (b, key) => made.push(key) });
+  run(sim, 30);
 
   assert.ok(made.length > 0, 'the mixer produced something');
   assert.ok(made.every((c) => c === 'green'), `blue + yellow is green, got ${[...new Set(made)]}`);
-  assert.ok(sim.score > 0, 'the shop was served');
-  assert.equal(sim.over, false);
+  assert.ok(world.goal.got > 0, 'the hub counted them');
+  assert.equal(world.goal.got, sim.delivered);
 });
 
-test('one colour with no partner overflows the mixer and stops the line', () => {
+test('a press turns matching beads into pearls', () => {
   const world = seedWorld(new World(3));
-  const mixer = find(world, KIND.MIXER);
-  connect(world, find(world, KIND.DEPOSIT, 'blue'), mixer);
+  const hub = find(world, KIND.HUB);
+  const press = world.addBuilding(KIND.PRESS, hub.x - 2, hub.y + 4);
+  world.goal = goalFor('yellow:2');
+  connect(world, find(world, KIND.DEPOSIT, 'yellow'), press);
+  connect(world, press, hub);
+
+  const made = [];
+  const sim = new Sim(world, { onCraft: (b, key) => made.push(key) });
+  run(sim, 40);
+  assert.ok(made.length >= 4, `the press should keep up with one deposit, made ${made.length}`);
+  assert.ok(made.every((k) => k === 'yellow:2'));
+  assert.equal(world.goal.got, made.length - (press.out ? 1 : 0) - inFlight(world, 'yellow:2'));
+});
+
+const inFlight = (world, key) => world.belts.reduce((n, belt) => n + belt.items.filter((i) => i.key === key).length, 0);
+
+test('the hub scraps what it did not ask for, without backing the line up', () => {
+  const world = seedWorld(new World(3));
+  const hub = find(world, KIND.HUB);
+  assert.equal(GOALS[world.goal.index].item, 'blue', 'the first goal is Cobalt');
+  const amber = connect(world, find(world, KIND.DEPOSIT, 'yellow'), hub);
+
+  const rejected = [];
+  const sim = new Sim(world, { onReject: (b, key) => rejected.push(key) });
+  run(sim, 30);
+  assert.ok(rejected.length >= 8, `Amber kept arriving and was scrapped (${rejected.length})`);
+  assert.ok(rejected.every((k) => k === 'yellow'));
+  assert.equal(world.goal.got, 0, 'none of it counted');
+  assert.ok(amber.items.length <= 3, 'and nothing queued up waiting to be let in');
+});
+
+test('finishing a goal hands over what it gives and moves the hub on', () => {
+  const world = seedWorld(new World(3));
+  const hub = find(world, KIND.HUB);
+  const seen = [];
+  const sim = new Sim(world, { onGoal: (done, next) => seen.push([done, next]) });
+  const first = GOALS[0];
+  world.goal.got = first.count - 1;
+  const belts = world.stock.belts;
+
+  assert.equal(sim.deliver(hub, first.item), true);
+  assert.deepEqual(world.goal, { index: 1, got: 0 });
+  assert.deepEqual(seen, [[first, GOALS[1]]]);
+  assert.equal(world.stock.belts, belts + first.gives.belts);
+  for (const key of first.gives.unlocks) assert.ok(world.unlocked.includes(key), `${key} is unlocked`);
+  assert.deepEqual(world.fresh, first.gives.unlocks, 'and marked new until the build list is opened');
+});
+
+test('once the last goal is done the hub takes anything', () => {
+  const world = seedWorld(new World(3));
+  const hub = find(world, KIND.HUB);
+  world.goal = { index: GOALS.length, got: 0 };
+  const rejected = [];
+  const sim = new Sim(world, { onReject: () => rejected.push(1) });
+  assert.equal(sim.goal, null);
+  for (const key of ['blue', 'slate', 'purple:3']) assert.equal(sim.deliver(hub, key), true);
+  assert.equal(sim.delivered, 3);
+  assert.equal(rejected.length, 0);
+});
+
+// Every goal, played with nothing but what the ladder has unlocked by then. If
+// a goal ever asks for something that cannot be built yet, this is where it shows.
+test('every goal can be met with what the goals before it unlocked', () => {
+  const world = seedWorld(new World(3));
+  const hub = find(world, KIND.HUB);
+  const ore = (color) => find(world, KIND.DEPOSIT, color);
+  const take = (key, dx, dy) => {
+    assert.ok(world.unlocked.includes(key), `goal ${world.goal.index + 1} needs a ${key}, unlocked are ${world.unlocked}`);
+    const { kind, color } = buildParts(key);
+    assert.ok(canPlaceAt(world, hub.x + dx, hub.y + dy), `room for the ${key}`);
+    return world.addBuilding(kind, hub.x + dx, hub.y + dy, color ? { color } : {});
+  };
+  const wire = (...pairs) => {
+    for (const [a, b] of pairs) assert.ok(connect(world, a, b), `belt from ${a.kind} to ${b.kind}`);
+  };
+  const sim = new Sim(world);
+  const finish = () => {
+    const goal = world.goal.index;
+    for (let i = 0; i < 60 * 300 && world.goal.index === goal; i++) sim.tick(1 / 60);
+    assert.equal(world.goal.index, goal + 1, `goal ${goal + 1} was not met within five minutes`);
+    // Each goal is rebuilt from scratch, the way a player tears up the last line.
+    [...world.belts].forEach((belt) => world.removeBelt(belt));
+  };
+
+  wire([ore('blue'), hub]);
+  finish();
+  const mixer = take('mixer', -3, 0);
+  wire([ore('blue'), mixer], [ore('yellow'), mixer], [mixer, hub]);
+  finish();
+  const press = take('press', -2, 4);
+  wire([ore('yellow'), press], [press, hub]);
+  finish();
+  const ruby = take('ore:red', 4, -4);
+  wire([ruby, mixer], [ore('yellow'), mixer], [mixer, hub]);
+  finish();
+  const cobalt = take('ore:blue', -7, 0);
+  take('splitter', 2, 4);
+  wire([ruby, mixer], [cobalt, mixer], [mixer, press], [press, hub]);
+  finish();
+  const second = take('mixer', 3, 0);
+  wire([ore('blue'), mixer], [ore('yellow'), mixer], [mixer, second], [ruby, second], [second, hub]);
+  finish();
+  assert.equal(sim.goal, null, 'the ladder is finished');
+});
+
+test('one item with no partner chokes a mixer, which stalls but never ends the game', () => {
+  const { world, mixer, blue } = fernFloor();
+  connect(world, blue, mixer);
 
   const events = [];
-  const sim = new Sim(world, { onJam: () => events.push('jam'), onFail: () => events.push('fail') });
-  for (let i = 0; i < 60 * 120 && !sim.over; i++) sim.tick(1 / 60);
+  const sim = new Sim(world, { onJam: () => events.push('jam') });
+  run(sim, 120);
 
-  assert.deepEqual(events, ['jam', 'fail']);
+  assert.deepEqual(events, ['jam']);
   assert.equal(mixer.buffer.length, TUNE.mixerCap);
-  assert.ok(sim.over);
+  assert.ok(mixer.jam > 0, 'it is still flashing');
+  assert.equal(sim.time > 119, true, 'and the floor kept running');
 });
 
-test('venting a jammed mixer clears it for a price', () => {
-  const world = seedWorld(new World(3));
-  const mixer = find(world, KIND.MIXER);
-  connect(world, find(world, KIND.DEPOSIT, 'blue'), mixer);
+test('dumping a stuck machine clears it', () => {
+  const { world, mixer, blue } = fernFloor();
+  connect(world, blue, mixer);
   const sim = new Sim(world);
-  sim.score = 10;
-  for (let i = 0; i < 60 * 25; i++) sim.tick(1 / 60);
+  run(sim, 25);
 
   assert.ok(mixer.jam > 0, 'the alarm is running');
   assert.equal(sim.vent(mixer), true);
   assert.equal(mixer.buffer.length, 0);
   assert.equal(mixer.jam, 0);
-  assert.equal(sim.score, 10 - TUNE.ventCost);
   assert.equal(sim.vent(mixer), false, 'nothing left to dump');
 });
 
-test('relaxed mode keeps an overflowing machine from ending the run', () => {
-  const world = seedWorld(new World(3));
-  connect(world, find(world, KIND.DEPOSIT, 'blue'), find(world, KIND.MIXER));
-  const sim = new Sim(world);
-  sim.relaxed = true;
-  for (let i = 0; i < 60 * 120; i++) sim.tick(1 / 60);
-  assert.equal(sim.over, false);
-});
-
-test('new arrivals only ask for colours the floor can actually make', () => {
-  const world = seedWorld(new World(21));
-  const sim = new Sim(world);
-  for (let i = 0; i < 60 * 400; i++) sim.tick(1 / 60);
-
-  assert.ok(world.buildings.length > 4, 'the factory grew');
-  const makeable = makeableColors(world);
-  for (const depot of world.buildings.filter((b) => b.kind === KIND.DEPOT)) {
-    assert.ok(makeable.includes(depot.color), `nothing can produce ${depot.color}`);
-  }
-  for (const b of world.buildings) {
-    assert.equal(world.buildingAt(b.x, b.y), b, 'every building is on its own cell');
-  }
-});
-
 test('items keep their spacing and ride the belt in order', () => {
-  const world = seedWorld(new World(3));
-  const mixer = find(world, KIND.MIXER);
-  const belt = connect(world, find(world, KIND.DEPOSIT, 'blue'), mixer);
+  const { world, mixer, blue } = fernFloor();
+  const belt = connect(world, blue, mixer);
   const sim = new Sim(world);
   for (let i = 0; i < 60 * 12; i++) {
     sim.tick(1 / 60);
@@ -243,23 +384,6 @@ test('items keep their spacing and ride the belt in order', () => {
       assert.ok(gap >= TUNE.itemGap - 1e-6, `items overlapped (gap ${gap.toFixed(3)})`);
     }
   }
-});
-
-test('a delivery pays by how deep the colour is', () => {
-  assert.equal(creditsFor('blue'), 1);
-  assert.equal(creditsFor('green'), 2);
-  assert.equal(creditsFor('slate'), 4);
-
-  const world = seedWorld(new World(3));
-  const mixer = find(world, KIND.MIXER);
-  connect(world, find(world, KIND.DEPOSIT, 'blue'), mixer);
-  connect(world, find(world, KIND.DEPOSIT, 'yellow'), mixer);
-  connect(world, mixer, find(world, KIND.DEPOT));
-  const sim = new Sim(world);
-  const purse = world.stock.credits;
-  for (let i = 0; i < 60 * 30; i++) sim.tick(1 / 60);
-  assert.ok(sim.score > 0);
-  assert.equal(world.stock.credits, purse + sim.score * 2, 'every Fern paid two');
 });
 
 test('a splitter feeds its outgoing belts in turn', () => {
@@ -275,84 +399,71 @@ test('a splitter feeds its outgoing belts in turn', () => {
   assert.ok(a && b, 'a splitter both receives and sends');
 
   const sim = new Sim(world);
-  for (let i = 0; i < 60 * 60; i++) sim.tick(1 / 60);
+  run(sim, 60);
   const served = left.buffer.length + right.buffer.length + a.items.length + b.items.length;
   assert.ok(served >= 4, `expected the splitter to pass items on, saw ${served}`);
   assert.ok(Math.abs(a.items.length + left.buffer.length - (b.items.length + right.buffer.length)) <= 1, 'the two outputs stay level');
 });
 
-test('ore deposits still only send, and shops only receive', () => {
-  const world = new World(5);
-  const ore = world.addBuilding(KIND.DEPOSIT, 2, 2, { color: 'red' });
-  const shop = world.addBuilding(KIND.DEPOT, 10, 2, { color: 'red' });
-  const split = world.addBuilding(KIND.SPLITTER, 6, 6);
-  const toOre = createDraft(world, split);
-  draftTo(world, toOre, ore);
-  assert.equal(toOre.end, null);
-  assert.equal(toOre.blocked, 'kind');
-  const fromShop = createDraft(world, shop);
-  draftTo(world, fromShop, split);
-  assert.equal(fromShop.end, null, 'a shop is the end of the line');
-});
+// ---- placing and moving machines ----
 
-test('a bought machine needs empty floor with a cell of air around it', () => {
-  const world = seedWorld(new World(8));
-  const mixer = find(world, KIND.MIXER);
+test('a machine needs empty floor with a cell of air around it', () => {
+  const { world, mixer, blue } = fernFloor(8);
   assert.equal(canPlaceAt(world, mixer.x, mixer.y), false, 'not on top of a building');
   assert.equal(canPlaceAt(world, mixer.x + 1, mixer.y), false, 'not touching one either');
   assert.equal(canPlaceAt(world, -1, 3), false, 'not off the floor');
 
-  const spot = { x: mixer.x, y: mixer.y + 3 };
+  const spot = { x: mixer.x, y: mixer.y - 3 };
   assert.equal(canPlaceAt(world, spot.x, spot.y), true);
-  const belt = connect(world, find(world, KIND.DEPOSIT, 'blue'), mixer);
+  const belt = connect(world, blue, mixer);
   const onBelt = belt.cells[2];
   assert.equal(canPlaceAt(world, onBelt.x, onBelt.y), false, 'not on a running belt');
 });
 
-test('research is priced per level and actually changes the floor', () => {
-  const world = seedWorld(new World(2));
-  const express = TECHS.find((t) => t.id === 'express');
-  assert.equal(techCost(express, 0), express.cost);
-  assert.equal(techCost(express, 1), express.cost + express.step);
-
-  const speed = world.speed;
-  express.apply(world);
-  assert.ok(world.speed > speed, 'express belts move the line faster');
-
-  const cap = world.caps.mixer;
-  TECHS.find((t) => t.id === 'buffers').apply(world);
-  assert.equal(world.caps.mixer, cap + 2);
-
-  const fuse = world.jamFuse;
-  TECHS.find((t) => t.id === 'reinforced').apply(world);
-  assert.ok(world.jamFuse > fuse);
-
-  assert.equal(world.unlocked.splitter, false);
-  TECHS.find((t) => t.id === 'splitter').apply(world);
-  assert.equal(world.unlocked.splitter, true);
-  assert.equal(GOODS.splitter.needs, 'splitter', 'the store keeps the splitter behind that tech');
+test('every machine is yours to move, but the hub stays put', () => {
+  const { world, hub, mixer, blue } = fernFloor(8);
+  assert.equal(canManage(mixer), true);
+  assert.equal(canManage(blue), true);
+  assert.equal(canManage(world.addBuilding(KIND.SPLITTER, 1, 1)), true);
+  assert.equal(canManage(world.addBuilding(KIND.PRESS, 1, 12)), true);
+  assert.equal(canManage(hub), false, 'the goals live in the hub');
 });
 
-test('wider buffers really do delay an overflow', () => {
-  const run = (wide) => {
-    const world = seedWorld(new World(3));
-    if (wide) TECHS.find((t) => t.id === 'buffers').apply(world);
-    connect(world, find(world, KIND.DEPOSIT, 'blue'), find(world, KIND.MIXER));
-    const sim = new Sim(world);
-    for (let i = 0; i < 60 * 200 && !sim.over; i++) sim.tick(1 / 60);
-    return sim.time;
-  };
-  assert.ok(run(true) > run(false), 'eight slots last longer than six');
+test('a machine in hand does not block its own landing spot', () => {
+  const { world, mixer, blue } = fernFloor(8);
+  assert.equal(canPlaceAt(world, mixer.x, mixer.y), false, 'occupied for anything else');
+  assert.equal(canPlaceAt(world, mixer.x, mixer.y, mixer), true, 'but it may be put back');
+  assert.equal(canPlaceAt(world, mixer.x, mixer.y - 1, mixer), true, 'and nudged one over');
+  assert.equal(canPlaceAt(world, blue.x, blue.y, mixer), false, 'someone else still blocks');
+  assert.equal(canPlaceAt(world, blue.x + 1, blue.y, mixer), false, 'as does their elbow room');
 });
 
-test('only shops arrive on their own now', () => {
-  const world = seedWorld(new World(14));
-  const sim = new Sim(world);
-  const before = world.buildings.length;
-  for (let i = 0; i < 60 * 400; i++) sim.tick(1 / 60);
-  assert.ok(world.buildings.length > before, 'the town grew');
-  const arrived = world.buildings.slice(before);
-  assert.ok(arrived.every((b) => b.kind === KIND.DEPOT), 'machines are bought, not gifted');
+test("a machine's own belt does not block it either, since that belt is going", () => {
+  const { world, mixer, blue } = fernFloor(8);
+  const belt = connect(world, blue, mixer);
+  const onIts = belt.cells[belt.cells.length - 2]; // the cell its own lane runs through
+
+  assert.equal(canPlaceAt(world, onIts.x, onIts.y), false, 'a running lane is in the way');
+  assert.equal(canPlaceAt(world, onIts.x, onIts.y, mixer), true, 'but moving the mixer removes that lane anyway');
+
+  // Somebody else's lane is still a lane.
+  const other = connect(world, blue, world.addBuilding(KIND.MIXER, mixer.x - 1, mixer.y + 5));
+  const theirs = other.cells[2];
+  assert.equal(canPlaceAt(world, theirs.x, theirs.y, mixer), false, 'not onto a lane that stays');
+});
+
+test('taking a machine away takes its belts and hands the tiles back', () => {
+  const { world, hub, mixer, blue } = fernFloor(8);
+  const before = world.stock.belts;
+  connect(world, blue, mixer);
+  connect(world, mixer, hub);
+  assert.equal(world.belts.length, 2);
+  assert.ok(world.stock.belts < before);
+
+  world.removeBuilding(mixer);
+  assert.equal(world.belts.length, 0, 'its lines went with it');
+  assert.equal(world.stock.belts, before, 'and the tiles came back');
+  assert.equal(world.buildings.includes(mixer), false);
 });
 
 // ---- joining one belt to another ----
@@ -363,7 +474,8 @@ const laneWorld = () => {
   world.addBuilding(KIND.DEPOSIT, 2, 2, { color: 'blue' });
   world.addBuilding(KIND.DEPOSIT, 2, 10, { color: 'yellow' });
   world.addBuilding(KIND.MIXER, 16, 2);
-  world.addBuilding(KIND.DEPOT, 16, 10, { color: 'green' });
+  world.addBuilding(KIND.HUB, 16, 10);
+  world.goal = goalFor('green');
   return world;
 };
 
@@ -378,10 +490,10 @@ test('a belt can end on another belt, and its load merges into that lane', () =>
   assert.equal(feeder.to, null, 'it ends on a belt, not a machine');
   assert.deepEqual(feeder.feed, { beltId: main.id, index: 5 });
 
-  connect(world, find(world, KIND.MIXER), find(world, KIND.DEPOT));
+  connect(world, find(world, KIND.MIXER), find(world, KIND.HUB));
   const sim = new Sim(world);
-  for (let i = 0; i < 60 * 60; i++) sim.tick(1 / 60);
-  assert.ok(sim.score > 0, 'both ores reached the mixer down one shared lane');
+  run(sim, 60);
+  assert.ok(world.goal.got > 0, 'both ores reached the mixer down one shared lane');
 });
 
 test('merging never drops an item on top of another', () => {
@@ -435,37 +547,9 @@ test('you still cannot branch off a belt without a splitter', () => {
   const mid = main.cells[5];
   // There is no building on that cell, so there is nothing to start a drag from.
   assert.equal(world.buildingAt(mid.x, mid.y), null);
-  const shop = find(world, KIND.DEPOT);
-  const draft = createDraft(world, shop);
+  const draft = createDraft(world, find(world, KIND.HUB));
   draftTo(world, draft, mid);
-  assert.equal(draft.endFeed, null, 'a shop is still the end of the line');
-});
-
-// ---- how demand arrives ----
-
-test('shops stop piling onto one colour', () => {
-  for (const seed of [3, 11, 21, 37, 44]) {
-    const world = seedWorld(new World(seed));
-    const sim = new Sim(world);
-    for (let i = 0; i < 60 * 600; i++) sim.tick(1 / 60);
-    const counts = {};
-    for (const shop of world.buildings.filter((b) => b.kind === KIND.DEPOT)) {
-      counts[shop.color] = (counts[shop.color] ?? 0) + 1;
-    }
-    const worst = Math.max(...Object.values(counts));
-    assert.ok(worst <= TUNE.sameColorCap, `seed ${seed}: ${worst} shops wanted the same colour`);
-    assert.ok(Object.keys(counts).length > 1, `seed ${seed}: only one colour was ever asked for`);
-  }
-});
-
-test('arrivals hold off once every makeable colour is served', () => {
-  const world = seedWorld(new World(5));
-  const sim = new Sim(world);
-  for (let i = 0; i < 60 * 900; i++) sim.tick(1 / 60);
-  const shops = world.buildings.filter((b) => b.kind === KIND.DEPOT);
-  // Blue and yellow ore make blue, yellow and green; two shops each is the lot.
-  assert.equal(shops.length, 6, 'the floor fills up and then waits for a new ore colour');
-  assert.ok(sim.stalled, 'and it knows it is waiting');
+  assert.equal(draft.endFeed, null, 'the hub is still the end of the line');
 });
 
 test('a lane that merges in still counts as feeding the machine it reaches', () => {
@@ -477,59 +561,6 @@ test('a lane that merges in still counts as feeding the machine it reaches', () 
   connect(world, find(world, KIND.DEPOSIT, 'yellow'), main.cells[5]);
   assert.equal(world.beltsTo(mixer).length, 1, 'only one belt actually ends on the mixer');
   assert.equal(inboundBelts(world, mixer).length, 2, 'but two lines feed it');
-});
-
-// ---- picking a machine up ----
-
-test('you keep your machines, but shops are not yours to move', () => {
-  const world = seedWorld(new World(8));
-  assert.equal(canManage(find(world, KIND.MIXER)), true);
-  assert.equal(canManage(find(world, KIND.DEPOSIT, 'blue')), true);
-  assert.equal(canManage(world.addBuilding(KIND.SPLITTER, 1, 1)), true);
-  assert.equal(canManage(find(world, KIND.DEPOT)), false, 'demand arrives on its own');
-});
-
-test('a machine in hand does not block its own landing spot', () => {
-  const world = seedWorld(new World(8));
-  const mixer = find(world, KIND.MIXER);
-  const blue = find(world, KIND.DEPOSIT, 'blue');
-
-  assert.equal(canPlaceAt(world, mixer.x, mixer.y), false, 'occupied for anything else');
-  assert.equal(canPlaceAt(world, mixer.x, mixer.y, mixer), true, 'but it may be put back');
-  assert.equal(canPlaceAt(world, mixer.x + 1, mixer.y, mixer), true, 'and nudged one over');
-  assert.equal(canPlaceAt(world, blue.x, blue.y, mixer), false, 'someone else still blocks');
-  assert.equal(canPlaceAt(world, blue.x + 1, blue.y, mixer), false, 'as does their elbow room');
-});
-
-test("a machine's own belt does not block it either, since that belt is going", () => {
-  const world = seedWorld(new World(8));
-  const mixer = find(world, KIND.MIXER);
-  const blue = find(world, KIND.DEPOSIT, 'blue');
-  const belt = connect(world, blue, mixer);
-  const onIts = belt.cells[belt.cells.length - 2]; // the cell its own lane runs through
-
-  assert.equal(canPlaceAt(world, onIts.x, onIts.y), false, 'a running lane is in the way');
-  assert.equal(canPlaceAt(world, onIts.x, onIts.y, mixer), true, 'but moving the mixer removes that lane anyway');
-
-  // Somebody else's lane is still a lane.
-  const other = connect(world, blue, world.addBuilding(KIND.MIXER, mixer.x, mixer.y + 4));
-  const theirs = other.cells[2];
-  assert.equal(canPlaceAt(world, theirs.x, theirs.y, mixer), false, 'not onto a lane that stays');
-});
-
-test('taking a machine away takes its belts and hands the tiles back', () => {
-  const world = seedWorld(new World(8));
-  const before = world.stock.belts;
-  const mixer = find(world, KIND.MIXER);
-  connect(world, find(world, KIND.DEPOSIT, 'blue'), mixer);
-  connect(world, mixer, find(world, KIND.DEPOT));
-  assert.equal(world.belts.length, 2);
-  assert.ok(world.stock.belts < before);
-
-  world.removeBuilding(mixer);
-  assert.equal(world.belts.length, 0, 'its lines went with it');
-  assert.equal(world.stock.belts, before, 'and the tiles came back');
-  assert.equal(world.buildings.includes(mixer), false);
 });
 
 test('a feeder waits at the kerb instead of standing in the lane', () => {
@@ -545,80 +576,49 @@ test('a feeder waits at the kerb instead of standing in the lane', () => {
   }
 });
 
-// ---- the dots over a shop ----
+// ---- the opening floor and saving it ----
 
-test('a shop with orders outstanding runs out of patience and closes', () => {
-  const world = seedWorld(new World(3));
+test('a new floor is the hub and two ores, with only those ores to build and the first goal', () => {
+  const world = seedWorld(new World(6));
+  assert.deepEqual(world.buildings.map((b) => b.kind + (b.color ? `:${b.color}` : '')).sort(), ['deposit:blue', 'deposit:yellow', 'hub']);
+  assert.deepEqual(world.unlocked, START_UNLOCKED);
+  assert.deepEqual(world.fresh, []);
+  assert.equal(world.stock.belts, TUNE.startBelts);
+  assert.deepEqual(world.goal, { index: 0, got: 0 });
+  assert.ok(find(world, KIND.DEPOSIT, colorOf(GOALS[0].item)), 'the first goal can be met straight away');
+});
+
+test('a saved floor comes back as it was, and keeps running', () => {
+  const world = laneWorld();
   const mixer = find(world, KIND.MIXER);
-  for (const ore of world.buildings.filter((b) => b.kind === KIND.DEPOSIT)) connect(world, ore, mixer);
-  const shop = find(world, KIND.DEPOT);
-  const line = connect(world, mixer, shop);
+  const hub = find(world, KIND.HUB);
+  const main = connect(world, find(world, KIND.DEPOSIT, 'blue'), mixer);
+  connect(world, find(world, KIND.DEPOSIT, 'yellow'), main.cells[5]);
+  connect(world, mixer, hub);
+  const crosser = world.addBuilding(KIND.DEPOSIT, 9, 0, { color: 'red' });
+  const crossing = connect(world, crosser, world.addBuilding(KIND.PRESS, 9, 13));
+  assert.ok(crossing.bridges.size > 0, 'the save has a bridge to carry');
+  world.unlocked.push('press', 'ore:red');
+  world.fresh = ['ore:red'];
+  world.goal.got = 7;
 
-  const closed = new Set();
-  const sim = new Sim(world, { onGiveUp: (b) => closed.add(b) });
-  for (let i = 0; i < 60 * 60; i++) sim.tick(1 / 60);
-  assert.ok(sim.score > 0, 'it was being served');
-  assert.equal(shop.patience, 0, 'a served shop is a patient one');
+  const copy = loadWorld(JSON.parse(JSON.stringify(saveWorld(world))));
+  assert.deepEqual(saveWorld(copy), saveWorld(world));
+  for (const belt of world.belts) {
+    for (let i = 1; i < belt.cells.length - 1; i++) {
+      const { x, y } = belt.cells[i];
+      assert.equal(copy.beltsAt(x, y).length, world.beltsAt(x, y).length, `lane cells at ${x},${y} are taken again`);
+    }
+  }
+  const fresh = copy.addBuilding(KIND.SPLITTER, 1, 6);
+  assert.ok(!world.buildings.some((b) => b.id === fresh.id) && !world.belts.some((b) => b.id === fresh.id), 'new ids do not collide');
 
-  world.removeBelt(line); // stop serving it
-  for (let i = 0; i < 60 * 200 && !closed.has(shop); i++) sim.tick(1 / 60);
-  assert.ok(closed.has(shop), 'the shop that stopped being served gave up');
-  assert.equal(world.buildings.includes(shop), false, 'it is gone from the floor');
+  const sim = new Sim(copy);
+  run(sim, 30);
+  assert.ok(sim.delivered > 0, 'the restored line delivers');
 });
 
-test('a shop nobody ever connects closes on its own once a run is going', () => {
-  const world = seedWorld(new World(3));
-  const mixer = find(world, KIND.MIXER);
-  for (const ore of world.buildings.filter((b) => b.kind === KIND.DEPOSIT)) connect(world, ore, mixer);
-  connect(world, mixer, find(world, KIND.DEPOT));
-  const closed = [];
-  const sim = new Sim(world, { onGiveUp: (b) => closed.push(b) });
-  for (let i = 0; i < 60 * 600; i++) sim.tick(1 / 60);
-
-  assert.ok(sim.score > 0, 'the floor is running');
-  assert.ok(closed.length > 0, 'shops that arrived and were never wired up gave up');
-  // The one being served is still open, so this is not just everything dying.
-  assert.ok(world.buildings.some((b) => b.kind === KIND.DEPOT && b.patience === 0));
-});
-
-test('nothing is on the clock before the first delivery of a run', () => {
-  const world = seedWorld(new World(3));
-  let closed = false;
-  const sim = new Sim(world, { onGiveUp: () => (closed = true) });
-  // Never connect anything: the opening must survive while the line is drawn.
-  for (let i = 0; i < 60 * 400; i++) sim.tick(1 / 60);
-  assert.equal(sim.delivered, 0);
-  assert.equal(closed, false, 'the opening shop waited');
-  assert.ok(find(world, KIND.DEPOT).pending >= TUNE.demandCap, 'even with every order outstanding');
-});
-
-test('a shop that has just opened is given a while to settle', () => {
-  const world = seedWorld(new World(3));
-  const mixer = find(world, KIND.MIXER);
-  for (const ore of world.buildings.filter((b) => b.kind === KIND.DEPOSIT)) connect(world, ore, mixer);
-  connect(world, mixer, find(world, KIND.DEPOT));
-  const sim = new Sim(world);
-  for (let i = 0; i < 60 * 40; i++) sim.tick(1 / 60);
-  assert.ok(sim.delivered > 0, 'the run is under way');
-
-  const fresh = world.addBuilding(KIND.DEPOT, 2, 2, { color: 'green' });
-  fresh.born = sim.time;
-  fresh.pending = TUNE.demandCap; // straight to a full rank of dots
-  for (let i = 0; i < 60 * (TUNE.shopGrace - 2); i++) sim.tick(1 / 60);
-  assert.equal(fresh.patience, 0, 'still settling in');
-  for (let i = 0; i < 60 * 5; i++) sim.tick(1 / 60);
-  assert.ok(fresh.patience > 0, 'and then the clock starts');
-});
-
-test('serving a shop resets its patience', () => {
-  const world = seedWorld(new World(3));
-  const shop = find(world, KIND.DEPOT);
-  const sim = new Sim(world);
-  sim.delivered = 1; // pretend the run is under way
-  shop.born = -TUNE.shopGrace - 1;
-  shop.pending = TUNE.demandCap;
-  for (let i = 0; i < 60 * 10; i++) sim.tick(1 / 60);
-  assert.ok(shop.patience > 5, 'it has been waiting');
-  sim.deliver(shop, shop.color);
-  assert.equal(shop.patience, 0);
+test('a save this build cannot read is ignored', () => {
+  assert.equal(loadWorld(null), null);
+  assert.equal(loadWorld({ version: 99 }), null);
 });

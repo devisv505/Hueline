@@ -1,29 +1,31 @@
 // The factory floor: buildings on a grid, belts drawn between them, and the
 // rules that decide where a belt may go. No DOM here, so it is unit testable.
-import { COLORS, TUNE } from './config.js?v=5';
-import { makeRng } from './rng.js?v=5';
+import { TUNE, START_UNLOCKED } from './config.js?v=6';
+import { makeRng } from './rng.js?v=6';
 
 const key = (x, y) => `${x},${y}`;
 
-export const KIND = { DEPOSIT: 'deposit', MIXER: 'mixer', DEPOT: 'depot', SPLITTER: 'splitter' };
+export const KIND = { DEPOSIT: 'deposit', MIXER: 'mixer', PRESS: 'press', SPLITTER: 'splitter', HUB: 'hub' };
 
 export class World {
   constructor(seed = 1, shape = TUNE) {
+    this.seed = seed;
     this.rng = makeRng(seed);
     this.cols = shape.cols;
     this.rows = shape.rows;
-    // Keep the floor from filling up on a smaller screen.
-    this.maxBuildings = Math.min(TUNE.maxBuildings, Math.round((this.cols * this.rows) / 14));
     this.buildings = [];
     this.belts = [];
-    this.stock = { belts: TUNE.startBelts, bridges: TUNE.startBridges, credits: TUNE.startCredits };
+    // Belt tiles are the one thing a floor runs short of; bridges are paid in them too.
+    this.stock = { belts: TUNE.startBelts };
+    // What the goals have opened up, each buildable as often as you like, and
+    // which of those are new since the build list was last opened.
+    this.unlocked = [...START_UNLOCKED];
+    this.fresh = [];
+    // Which goal the hub is on, and how many of its items have arrived.
+    this.goal = { index: 0, got: 0 };
     this.speed = TUNE.beltSpeed;
-    // Research moves these, so nothing reads the raw tunables at run time.
-    this.caps = { mixer: TUNE.mixerCap, depot: TUNE.depotCap, deposit: TUNE.depositCap, splitter: TUNE.splitterCap };
-    this.jamFuse = TUNE.jamFuse;
-    this.patienceFuse = TUNE.patienceFuse;
-    this.unlocked = { splitter: false };
-    this.techs = {}; // tech id -> levels bought
+    // Upgrades may move these later, so nothing reads the raw tunables at run time.
+    this.caps = { mixer: TUNE.mixerCap, press: TUNE.pressCap, deposit: TUNE.depositCap, splitter: TUNE.splitterCap, hub: 0 };
     this.nextId = 1;
     this.cellBuilding = new Map();
     this.cellBelts = new Map(); // interior belt cells only: key -> [{ belt, index }]
@@ -53,8 +55,7 @@ export class World {
       craft: 0,
       jam: 0,
       cool: 0,
-      pending: kind === KIND.DEPOT ? 1 : 0,
-      patience: 0, // how long a shop has sat with every order unfilled
+      pendingOut: null,
       rr: 0,
       ...extra,
     };
@@ -75,18 +76,32 @@ export class World {
   addBelt(cells, bridges, feed = null) {
     const from = this.buildingAt(cells[0].x, cells[0].y);
     const to = this.buildingAt(cells.at(-1).x, cells.at(-1).y);
-    const belt = {
+    const belt = this.placeBelt({
       id: this.nextId++,
       from: from.id,
       to: to?.id ?? null,
       // Set when the belt ends on another belt instead of a machine: items are
       // slipped into that lane at `index` when there is a gap.
       feed: feed ? { beltId: feed.belt.id, index: feed.index } : null,
-      color: null, // last colour carried, for a subtle tint
+      cells,
+      bridges: bridges.map((c) => key(c.x, c.y)),
+    });
+    this.stock.belts -= beltTiles(cells.length - 2, belt.bridges.size);
+    return belt;
+  }
+
+  // Lay a belt that has already been paid for: a new one, or one coming back
+  // from a save.
+  placeBelt({ id, from, to, feed, cells, bridges }) {
+    const belt = {
+      id,
+      from,
+      to,
+      feed,
       cells,
       pts: cells.map((c) => ({ x: c.x + 0.5, y: c.y + 0.5 })),
       len: cells.length - 1,
-      bridges: new Set(bridges.map((c) => key(c.x, c.y))),
+      bridges: new Set(bridges),
       items: [], // head first: items[0] is nearest the destination
       born: 0,
     };
@@ -96,8 +111,6 @@ export class World {
       if (!this.cellBelts.has(k)) this.cellBelts.set(k, []);
       this.cellBelts.get(k).push({ belt, index: i });
     }
-    this.stock.belts -= cells.length - 2;
-    this.stock.bridges -= belt.bridges.size;
     return belt;
   }
 
@@ -121,8 +134,7 @@ export class World {
       if (list.length) this.cellBelts.set(k, list);
       else this.cellBelts.delete(k);
     }
-    this.stock.belts += belt.cells.length - 2;
-    this.stock.bridges += belt.bridges.size;
+    this.stock.belts += beltTiles(belt.cells.length - 2, belt.bridges.size);
   }
 
   removeBuilding(b) {
@@ -153,7 +165,10 @@ export class World {
 
 // ---- drawing a belt ----
 
-export const canStartFrom = (b) => b.kind !== KIND.DEPOT;
+// What a belt costs: a tile for every cell it runs over, and a bridge on top.
+export const beltTiles = (cells, bridges) => cells + bridges * TUNE.bridgeTiles;
+
+export const canStartFrom = (b) => b.kind !== KIND.HUB;
 export const canEndAt = (b) => b.kind !== KIND.DEPOSIT;
 
 // Every belt whose load ends up at this building, following the ones that
@@ -182,7 +197,7 @@ export function mergeTargetAt(world, x, y) {
   return { belt, index };
 }
 
-// Where the player may drop a machine they have bought: empty floor, clear of
+// Where the player may drop a machine: empty floor, clear of
 // the belts already running, with a cell of air between it and its neighbours.
 // `ignore` is the machine being picked up and moved, which should not block
 // its own new spot or the cells around it.
@@ -194,8 +209,8 @@ export function canPlaceAt(world, x, y, ignore = null) {
   return !world.buildings.some((b) => b !== ignore && Math.max(Math.abs(b.x - x), Math.abs(b.y - y)) < 2);
 }
 
-// Shops arrive on their own and are demand, not plant: you keep the machines.
-export const canManage = (b) => b.kind !== KIND.DEPOT;
+// Everything on the floor is yours to move except the hub, which the goals live in.
+export const canManage = (b) => b.kind !== KIND.HUB;
 
 export function createDraft(world, building) {
   return {
@@ -212,8 +227,10 @@ export function createDraft(world, building) {
 const beltCost = (draft) => Math.max(0, draft.cells.length - (draft.end || draft.endFeed ? 2 : 1));
 
 export function draftCost(draft) {
-  return { belts: beltCost(draft), bridges: draft.bridges.length };
+  return { belts: beltTiles(beltCost(draft), draft.bridges.length), bridges: draft.bridges.length };
 }
+
+const routeTiles = (found) => beltTiles(found.cells.length - (found.terminal ? 2 : 1), found.bridges.length);
 
 const DIRS = [
   { x: 1, y: 0 },
@@ -341,7 +358,7 @@ function route(world, from, to, trail, allowBridges) {
 // Re-route the whole belt towards the cursor on every move: the line stays
 // smooth and legal while still hugging the detours the player dragged.
 export function draftTo(world, draft, target) {
-  if (!canStartFrom(draft.from)) return fail(draft, 'kind'); // a shop is the end of the line
+  if (!canStartFrom(draft.from)) return fail(draft, 'kind'); // the hub is the end of the line
   if (!world.inside(target.x, target.y)) return draft;
   draft.trail.add(`${target.x},${target.y}`);
 
@@ -363,18 +380,18 @@ export function draftTo(world, draft, target) {
   const merge = building ? null : mergeTargetAt(world, target.x, target.y);
   if (!building && world.beltsAt(target.x, target.y).length && !merge) return fail(draft, 'occupied');
 
-  let found = route(world, from, target, draft.trail, world.stock.bridges > 0);
-  if (found && found.bridges.length > world.stock.bridges) {
-    found = route(world, from, target, draft.trail, false) ?? fewestBridges(found, world);
-  }
-  if (!found) return fail(draft, world.stock.bridges > 0 ? 'blocked' : 'no-bridges');
+  // A bridge costs tiles, so when the route over one is more than you can pay
+  // for, the long way round may still fit.
+  let found = route(world, from, target, draft.trail, true);
+  if (found && routeTiles(found) > world.stock.belts) found = route(world, from, target, draft.trail, false) ?? found;
+  if (!found) return fail(draft, 'blocked');
 
   draft.blocked = null;
-  const interior = found.cells.length - (found.terminal ? 2 : 1);
-  if (interior > world.stock.belts) {
+  if (routeTiles(found) > world.stock.belts) {
     // Show as much line as there are tiles for, so running out is visible.
-    draft.cells = found.cells.slice(0, world.stock.belts + 1);
-    draft.bridges = found.bridges.filter((c) => draft.cells.some((p) => p.x === c.x && p.y === c.y));
+    const part = affordable(found, world.stock.belts);
+    draft.cells = part.cells;
+    draft.bridges = part.bridges;
     draft.end = null;
     draft.endFeed = null;
     draft.blocked = 'no-belts';
@@ -388,18 +405,20 @@ export function draftTo(world, draft, target) {
   return draft;
 }
 
-// Out of bridges mid-route: keep the part that is still affordable.
-function fewestBridges(found, world) {
-  let used = 0;
-  const cells = [];
-  for (const cell of found.cells) {
-    if (found.bridges.some((b) => b.x === cell.x && b.y === cell.y)) {
-      if (used >= world.stock.bridges) break;
-      used++;
-    }
+// The front of a route that the tiles in hand will pay for.
+function affordable(found, budget) {
+  const cells = [found.cells[0]];
+  const bridges = [];
+  let spent = 0;
+  for (const cell of found.cells.slice(1)) {
+    const bridge = found.bridges.some((b) => b.x === cell.x && b.y === cell.y);
+    const cost = beltTiles(1, bridge ? 1 : 0);
+    if (spent + cost > budget) break;
+    spent += cost;
     cells.push(cell);
+    if (bridge) bridges.push(cell);
   }
-  return cells.length > 1 ? { cells, bridges: found.bridges.slice(0, used), terminal: false } : null;
+  return { cells, bridges };
 }
 
 function fail(draft, why) {
@@ -414,80 +433,58 @@ export function commitDraft(world, draft) {
   return world.addBelt(draft.cells.map((c) => ({ ...c })), draft.bridges, draft.endFeed);
 }
 
-// ---- starting layout and later arrivals ----
+// ---- the opening floor ----
 
-export function makeableColors(world) {
-  const have = new Set(world.buildings.filter((b) => b.kind === KIND.DEPOSIT).map((b) => b.color));
-  const mixers = world.buildings.filter((b) => b.kind === KIND.MIXER).length;
-  return Object.keys(COLORS).filter((c) => {
-    const parts = COLORS[c].parts;
-    return parts.every((p) => have.has(p)) && mixers >= parts.length - 1;
-  });
-}
-
-// Somewhere with elbow room, and near enough to the plant to be worth wiring up.
-export function freeSpot(world, rng) {
-  let best = null;
-  let bestScore = -Infinity;
-  let fallback = null; // used only if the floor is too busy to be fussy
-  for (let tries = 0; tries < 240; tries++) {
-    const x = 1 + rng.int(world.cols - 2);
-    const y = 1 + rng.int(world.rows - 2);
-    if (world.buildingAt(x, y) || world.beltsAt(x, y).length) continue;
-    let near = Infinity;
-    let clear = true;
-    for (const b of world.buildings) {
-      const d = Math.max(Math.abs(b.x - x), Math.abs(b.y - y));
-      if (d < 3) clear = false;
-      near = Math.min(near, d);
-    }
-    if (!clear) continue;
-    fallback ??= { x, y };
-    // Keep off the shoulder of a running belt, or the new arrival sits on the line.
-    if (DIRS.some((d) => world.beltsAt(x + d.x, y + d.y).length)) continue;
-    // Prefer a gap of about five cells: close enough to reach, far enough to route.
-    const score = -Math.abs(near - 5) + rng() * 1.5;
-    if (score > bestScore) {
-      bestScore = score;
-      best = { x, y };
-    }
-  }
-  return best ?? fallback;
-}
-
-// Two ores, one mixer, one shop: the smallest floor that teaches the whole loop.
+// The hub in the middle and two ores to feed it: everything else is built as
+// the goals open it up.
 export function seedWorld(world) {
   const mid = { x: (world.cols / 2) | 0, y: (world.rows / 2) | 0 };
   const tall = world.rows > world.cols;
-  world.addBuilding(KIND.MIXER, mid.x, mid.y);
+  world.addBuilding(KIND.HUB, mid.x, mid.y);
   if (tall) {
     world.addBuilding(KIND.DEPOSIT, mid.x - 3, mid.y - 5, { color: 'blue' });
     world.addBuilding(KIND.DEPOSIT, mid.x + 3, mid.y - 5, { color: 'yellow' });
-    world.addBuilding(KIND.DEPOT, mid.x, mid.y + 5, { color: 'green' });
   } else {
     world.addBuilding(KIND.DEPOSIT, mid.x - 5, mid.y - 3, { color: 'blue' });
     world.addBuilding(KIND.DEPOSIT, mid.x - 5, mid.y + 3, { color: 'yellow' });
-    world.addBuilding(KIND.DEPOT, mid.x + 5, mid.y, { color: 'green' });
   }
   return world;
 }
 
-// Only demand arrives on its own now — machines and deposits are bought — and a
-// new shop only ever asks for a colour the floor can already make.
-export function nextArrival(world, rng) {
-  const open = world.buildings.filter((b) => b.kind === KIND.DEPOT);
-  const wanted = (color) => open.filter((b) => b.color === color).length;
+// ---- saving the floor ----
 
-  // Only colours the floor is not already saturated with. Without this the
-  // first makeable mix wins every roll and the map fills with one colour.
-  const options = makeableColors(world).filter((c) => wanted(c) < TUNE.sameColorCap);
-  if (!options.length) return null;
+// The layout, belt tiles, what is unlocked and the goal progress. What is
+// riding the belts or sitting in a buffer is not kept: a floor comes back empty
+// and starts up again.
+export function saveWorld(world) {
+  return {
+    version: 2,
+    seed: world.seed,
+    cols: world.cols,
+    rows: world.rows,
+    nextId: world.nextId,
+    stock: { ...world.stock },
+    unlocked: [...world.unlocked],
+    fresh: [...world.fresh],
+    goal: { ...world.goal },
+    buildings: world.buildings.map(({ id, kind, x, y, color }) => ({ id, kind, x, y, color })),
+    belts: world.belts.map(({ id, from, to, feed, cells, bridges }) => ({ id, from, to, feed, cells, bridges: [...bridges] })),
+  };
+}
 
-  // Rarest first, so demand spreads instead of piling onto one shop colour,
-  // and lean towards the deeper recipes once the plant can handle them.
-  const fewest = Math.min(...options.map(wanted));
-  const rarest = options.filter((c) => wanted(c) === fewest);
-  const deep = rarest.filter((c) => COLORS[c].parts.length > 1);
-  const pool = deep.length && rng() < 0.8 ? deep : rarest;
-  return { kind: KIND.DEPOT, color: rng.pick(pool) };
+export function loadWorld(data) {
+  if (data?.version !== 2) return null;
+  const world = new World(data.seed, { cols: data.cols, rows: data.rows });
+  for (const { id, kind, x, y, color } of data.buildings) {
+    world.addBuilding(kind, x, y, color ? { id, color } : { id });
+  }
+  // Belts were saved in the order they were laid, so a lane is always back
+  // before anything that merges into it.
+  for (const belt of data.belts) world.placeBelt(belt);
+  world.nextId = data.nextId;
+  world.stock = { ...world.stock, ...data.stock };
+  world.unlocked = [...data.unlocked];
+  world.fresh = [...data.fresh];
+  world.goal = { ...data.goal };
+  return world;
 }

@@ -152,6 +152,16 @@ button {
   color: var(--pink);
 }
 
+/* A goal has unlocked something you have not looked at yet. */
+.pill.shop.fresh {
+  background: var(--pink);
+  color: #fff;
+}
+
+.pill.shop.fresh .icon {
+  color: #fff;
+}
+
 /* ---- the factory floor ---- */
 
 .stage {
@@ -188,7 +198,7 @@ button {
   animation: coach-in 0.4s var(--pop) both;
 }
 
-/* ---- score board ---- */
+/* ---- the goal board ---- */
 
 .board {
   display: flex;
@@ -208,21 +218,84 @@ button {
 .rule {
   display: block;
   width: min(280px, 60vw);
-  height: 2px;
+  height: 4px;
   border-radius: 2px;
   background: var(--line);
-  margin: 4px 0 2px;
+  margin: 4px 0 4px;
+  overflow: hidden;
 }
 
-.score {
-  font-size: clamp(24px, 4.4vw, 34px);
+.rule b {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  transform: scaleX(0);
+  transform-origin: left;
+  transition: transform 0.35s var(--pop), background 0.3s;
+}
+
+/* What the hub wants right now: a bead, the count so far and its name. */
+.goal {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.goal-count {
+  font-size: clamp(22px, 4.2vw, 30px);
   font-weight: 800;
   font-variant-numeric: tabular-nums;
   color: var(--ink);
 }
 
-.score.big {
-  font-size: 56px;
+.goal-text {
+  display: flex;
+  flex-direction: column;
+  line-height: 1.15;
+  text-align: left;
+}
+
+.goal-text b {
+  font-size: 15px;
+  font-weight: 800;
+}
+
+.goal-text small {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--ink-soft);
+}
+
+/* A bead, pearl or orb in its own colour, as drawn on the belts. */
+.bead {
+  --d: 16px;
+  display: inline-block;
+  flex: none;
+  width: var(--d);
+  height: var(--d);
+  border-radius: 50%;
+  background: radial-gradient(circle at 34% 30%, rgba(255, 255, 255, 0.55) 0 18%, transparent 19%), var(--bead, #8c8494);
+  box-shadow: 0 3px 8px -3px rgba(63, 70, 84, 0.7);
+}
+
+.bead[data-size='2'] {
+  --d: 22px;
+}
+
+.bead[data-size='3'] {
+  --d: 28px;
+}
+
+.goal .bead {
+  --d: 22px;
+}
+
+.goal .bead[data-size='2'] {
+  --d: 28px;
+}
+
+.goal .bead[data-size='3'] {
+  --d: 34px;
 }
 
 /* ---- pop-up effects ---- */
@@ -394,6 +467,10 @@ button {
   text-decoration: underline;
 }
 
+.btn.link.danger {
+  color: var(--red);
+}
+
 .rules {
   margin: 0 0 18px;
   padding: 0;
@@ -478,7 +555,11 @@ button {
   animation: none;
 }
 
-/* ---- placing a machine you have bought ---- */
+.recipe .bead {
+  --d: 20px;
+}
+
+/* ---- placing a machine ---- */
 
 .placing-bar {
   position: absolute;
@@ -523,7 +604,7 @@ button {
   display: none;
 }
 
-/* ---- store and research ---- */
+/* ---- the build list and the goal card ---- */
 
 .choices {
   display: grid;
@@ -560,27 +641,8 @@ button {
   transform: scale(0.97);
 }
 
-.wallet {
-  display: inline-flex;
-  align-items: center;
-  gap: 7px;
-  margin: 0 0 16px;
-  padding: 7px 16px;
-  border-radius: 999px;
-  background: #f7f8fa;
-  font-size: 14px;
-  font-weight: 700;
-  color: var(--ink-soft);
-}
 
-.wallet .icon {
-  color: var(--pink);
-}
 
-.wallet b {
-  color: var(--ink);
-  font-size: 17px;
-}
 
 .choice:disabled {
   cursor: default;
@@ -595,10 +657,6 @@ button {
   box-shadow: inset 0 0 0 2px transparent;
 }
 
-.choice.owned {
-  opacity: 0.75;
-  box-shadow: inset 0 0 0 2px var(--green);
-}
 
 .choice-text {
   flex: 1;
@@ -616,82 +674,84 @@ button {
   font-variant-numeric: tabular-nums;
 }
 
-.choice.owned .price,
-.choice.locked .price {
-  background: #dfe3ea;
-  color: var(--ink-soft);
+
+
+
+
+
+
+
+
+
+
+.price.new {
+  background: var(--pink);
 }
 
-.tag {
-  display: inline-block;
-  margin-left: 4px;
-  padding: 1px 7px;
+
+.gifts {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 8px;
+  margin: 0 0 18px;
+}
+
+.gift {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 8px 14px;
   border-radius: 999px;
-  background: #eceef2;
-  color: var(--ink-soft);
-  font-size: 11px;
-  font-style: normal;
-  font-weight: 800;
-  vertical-align: middle;
-}
-
-.ore-row {
-  padding: 12px 14px 14px;
-  border-radius: 18px;
   background: #f7f8fa;
-  text-align: left;
+  font-size: 14px;
+  font-weight: 800;
   animation: slot-in 0.4s var(--pop) both;
 }
 
-.ore-label {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-  margin: 0 0 10px;
-  font-size: 16px;
-  font-weight: 800;
+.gift .icon {
+  color: var(--pink);
 }
 
-.ore-buttons {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 8px;
+.gift:nth-child(2) {
+  animation-delay: 0.08s;
 }
 
-.ore-pick {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 6px;
-  padding: 10px 4px;
-  border-radius: 14px;
-  background: var(--paper);
-  font-size: 12px;
+.gift:nth-child(3) {
+  animation-delay: 0.16s;
+}
+
+.next {
+  margin: 0 0 20px;
+  padding: 14px 16px;
+  border-radius: 18px;
+  background: #f7f8fa;
+}
+
+.next-label {
+  margin: 0 0 6px;
+  font-size: 11px;
   font-weight: 800;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
   color: var(--ink-soft);
-  box-shadow: 0 4px 10px -7px rgba(63, 70, 84, 0.9);
-  transition: transform 0.16s var(--pop), box-shadow 0.2s;
 }
 
-.ore-pick i {
-  width: 24px;
-  height: 24px;
-  border-radius: 9px;
-  background: var(--ore);
+.next-goal {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  margin: 0 0 6px;
+  font-size: 18px;
 }
 
-.ore-pick:hover:not(:disabled) {
-  box-shadow: inset 0 0 0 2px var(--ore);
-}
-
-.ore-pick:active:not(:disabled) {
-  transform: scale(0.94);
-}
-
-.ore-pick:disabled {
-  opacity: 0.4;
-  cursor: default;
+.next-hint {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.45;
+  color: var(--ink-soft);
 }
 
 .card-note {
@@ -727,24 +787,8 @@ button {
   color: var(--ink-soft);
 }
 
-.final {
-  margin: 4px 0 20px;
-}
 
-.final-label {
-  font-size: 12px;
-  font-weight: 800;
-  letter-spacing: 0.2em;
-  text-transform: uppercase;
-  color: var(--ink-soft);
-}
 
-.best {
-  margin: 2px 0 0;
-  font-size: 14px;
-  font-weight: 700;
-  color: var(--pink);
-}
 
 /* ---- keyframes ---- */
 

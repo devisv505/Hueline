@@ -1,8 +1,9 @@
 # Hueline
 
-An automation game with no spreadsheets in it. Ore deposits drop primary
-colours, mixers combine two different colours into a new one, and shops want
-whatever the mixers can make. You do one thing: draw the belts.
+An automation game with no spreadsheets in it. Ore deposits drop beads of the
+three primary colours, mixers combine two different colours into a new one,
+presses squeeze two matching beads into a bigger one, and a hub in the middle of
+the floor asks for one item at a time. You do one thing: draw the belts.
 
 Plain HTML, CSS and JavaScript modules, with no build step. It started life as
 `prototype_1/` in [Pawzzle](https://github.com/devisv505/Pawzzle) and moved here
@@ -12,12 +13,13 @@ once it outgrew being a prototype; the history came with it.
 
 | Piece | What it does |
 |---|---|
-| **Ore deposit** | Drops one ore every few seconds: Ruby, Cobalt or Amber. It only sends. |
-| **Mixer** | Holds up to six items and combines any two colours that react. |
-| **Splitter** | One belt in, two or more out, fed in turn. Researched, then bought. |
-| **Shop** | Wants one colour. The dots above it are orders waiting. |
-| **Belt** | A one-way lane from a deposit or mixer into a mixer, shop, or another belt. |
-| **Bridge** | Spent where one belt has to hop another. You start with two. |
+| **Hub** | Sits in the middle and asks for one item. Only that item counts; anything else is scrapped at the door. It cannot be moved. |
+| **Ore deposit** | Drops one bead every few seconds: Ruby, Cobalt or Amber. It only sends. |
+| **Mixer** | Holds up to six items and combines any two colours of the same size that react. |
+| **Press** | Holds up to four items and squeezes two identical ones into one a size up. |
+| **Splitter** | One belt in, two or more out, fed in turn. |
+| **Belt** | A one-way lane from a deposit or machine into a machine, the hub, or another belt. |
+| **Bridge** | Built where one belt has to hop another, for three belt tiles on top of the one under it. |
 
 Mixing is set union over the three primaries, so the recipe table never has to
 be written out:
@@ -32,73 +34,93 @@ Ruby   + Fern   → Slate    (all three)
 Two colours only react when each brings something the other lacks: Cobalt and
 Fern do nothing, because Fern already contains blue.
 
-## The three rules that make it a game
+Every item also has a size. Two matching beads press into a pearl, two pearls
+into an orb, and that is as big as it gets. Mixing keeps the size, so a Ruby
+pearl and a Cobalt pearl make a Plum pearl, while a bead and a pearl do not
+react at all. An item's key is its colour for a bead and `colour:size` once
+pressed (`yellow:2` is an Amber pearl).
 
-1. **Belt tiles are finite.** The counter in the header is your whole budget.
-   Pull a belt up by tapping it and the tiles come back. **Press and hold a
-   machine** and a ring closes around it; when it fills, the machine comes up in
-   hand to drop somewhere else or scrap. Moving takes its belts with it and
-   hands back the tiles. Scrapping gives back no credits.
-2. **Belts cannot cross.** Where a route has to hop another belt it spends a
-   bridge, and a belt has to run straight across one — no turning up there.
-   They *can* join, though: drop a belt onto a running lane and its load merges
-   in, so two sources share one line. Splitting a line still takes a splitter —
-   merging is free, branching is not.
-3. **Shops run out of patience.** A shop raises an order every few seconds, up
-   to four — the dots above it. Fill all four and leave them unfilled and a ring
-   closes around it; when the ring completes, the shop shuts for good and you
-   lose that customer. Serving it resets the clock. Nothing is on the clock
-   before the first delivery of a run, and a newly opened shop gets a while to
-   settle, so the opening is never lost while the line is still being drawn.
-4. **A mixer fails if its input buffer overflows.** Six of one colour with no
-   partner will never clear itself, so the machine sounds an alarm and burns
-   out fifteen seconds later, which ends the run. Tap a flashing machine to
-   dump its buffer for five points — the escape hatch when a route goes wrong.
+## Goals
 
-## Credits, the store and the lab
+The hub works through a ladder of goals. Deliver the count and the next goal
+arrives, along with what finishing this one hands over: new buildings, and more
+belt tiles. A card says what you got and what comes next, and its
+button puts the new machine straight into your hand.
 
-Every delivery pays credits by how deep the colour is: a primary is 1, a mix 2,
-and Slate 4. The big number under the floor is still orders delivered; credits
-are what you spend.
+| # | Deliver | Teaches | Unlocks | Belt tiles |
+|---|---|---|---|---|
+| 1 | 10 Cobalt beads | A belt from a deposit to the hub | Mixer | +8 |
+| 2 | 20 Fern beads | Mixing | Press | +10 |
+| 3 | 12 Amber pearls | Pressing | Ruby deposit | +10 |
+| 4 | 24 Coral beads | A new ore, and rewiring the mixer for it | Splitter | +12 |
+| 5 | 14 Plum pearls | Mixing then pressing, in one line | — | +12 |
+| 6 | 24 Slate beads | A mixer feeding a mixer | — | +15 |
 
-The **store** sells belt tiles and bridges outright, and mixers, splitters and
-ore deposits as machines you then **drop wherever you want** — the board shows a
-ghost under the cursor and a green box when the spot is clear, and nothing is
-charged until you put it down. Machines need a cell of air around them and
-cannot sit on a running belt.
+You start with 40 tiles, and with Cobalt and Amber deposits already unlocked.
 
-The **lab** sells research, which is permanent:
+After the last goal the hub takes anything, and the floor is yours to keep
+building on. The ladder lives in `GOALS` in `js/config.js`; a test plays every
+goal using only what the goals before it unlocked, so a goal that asks for
+something that cannot be built yet fails the suite.
 
-| Tech | What it buys you |
-|---|---|
-| Splitters | Unlocks the splitter in the store |
-| Express belts | 20% quicker, twice over |
-| Wider buffers | Mixers hold eight instead of six |
-| Reinforced machines | An overflowing machine holds on half as long again |
+Each new goal makes the last line useless, which is the point: the floor gets
+rewired every few minutes. Leftovers from the old goal are scrapped at the hub
+rather than left to wait, so one stray pearl can never block a line that is
+otherwise wired right.
 
-Only shops arrive on their own now, and only ever asking for a colour the floor
-can already make. No more than two will ever want the same colour: once every
-makeable colour has its shops, arrivals stop until you buy an ore deposit that
-opens up new recipes. Everything that supplies them, you buy and place yourself.
+## The rules that make it a game
+
+1. **Belt tiles are the only limit.** The counter in the header is your whole
+   budget, and every finished goal adds to it. Pull a belt up by tapping it and
+   the tiles come back.
+2. **Belts cannot cross.** Where a route has to hop another belt it builds a
+   bridge, which costs three tiles on top of the one under it, and a belt has to
+   run straight across one — no turning up there. They *can* join, though: drop
+   a belt onto a running lane and its load merges in, so two sources share one
+   line. Splitting a line still takes a splitter — merging is free, branching
+   is not.
+3. **Goals unlock buildings, and you build as many as you like.** The Build
+   button in the header lists everything unlocked so far, and turns pink when a
+   goal has added something you have not looked at yet. Pick one and **drop it
+   wherever you want** — the board shows a ghost under the cursor and a green
+   box when the spot is clear. Machines need a cell of air around them and
+   cannot sit on a running belt, so the floor itself is the other thing that
+   runs out. **Press and hold a machine** and a ring closes around it; when it
+   fills, the machine comes up in hand to drop somewhere else or remove. Either
+   way its belts come up with it and the tiles come back.
+4. **A machine that fills up with things it cannot use stops.** Six of one
+   colour in a mixer, or four items with no matching pair in a press, will never
+   clear themselves, so the machine rattles, flashes and sounds an alarm. It
+   never ends the game; the line behind it just stops until you tap the machine
+   to dump its buffer.
+
+## Saving
+
+The floor saves itself as you play: the layout, the belt tiles in hand, what is
+unlocked and how far along the current goal is. Items riding the belts and sitting in
+buffers are not kept, so a floor comes back empty and starts up again. A floor
+keeps the shape it was made with, so one started on a wide screen stays wide on
+a phone. **Start a new factory**, at the bottom of the help card, clears it
+after a second tap.
 
 ## Drawing a belt
 
-Press a deposit or a mixer and drag. The route re-plans towards your finger on
+Press a deposit or a machine and drag. The route re-plans towards your finger on
 every move, preferring long straight runs, so it comes out looking drawn rather
 than stepped. It also remembers where you dragged: sweep out and around an
 obstacle and the belt follows your detour instead of cutting the corner. Release
-on a machine to lay it, anywhere else to throw it away.
+on a machine or the hub to lay it, anywhere else to throw it away.
 
 ## Layout
 
 | Path | What |
 |---|---|
-| `js/config.js` | Colours, the mixing rule, and every tunable number |
-| `js/world.js` | The grid, the belt router, and what the floor may look like |
-| `js/sim.js` | One tick: ore drops, items move, mixers craft, buffers overflow |
-| `js/render.js` | The whole canvas: paper, districts, belts, bridges, machines |
+| `js/config.js` | Colours, items, the mixing and pressing rules, the goal ladder, every tunable number |
+| `js/world.js` | The grid, the belt router, the opening floor, and saving it |
+| `js/sim.js` | One tick: ore drops, items move, mixers and presses craft, the hub counts |
+| `js/render.js` | The whole canvas: paper, districts, belts, bridges, machines, the hub |
 | `js/input.js` | Drawing, erasing and tapping |
-| `js/main.js` | Screens, upgrades, the heads-up display, the frame loop |
+| `js/main.js` | Screens, the build list, the goal board and card, saving, the frame loop |
 | `js/fx.js`, `js/audio.js` | Bursts, toasts, confetti and synthesized blips |
 | `tests/factory.test.mjs` | The rules above, as assertions |
 | `docs/ASSET_PROMPTS.md` | Prompts for generating the icon art |
@@ -138,8 +160,11 @@ python3 tools/bump_version.py
 
 ## Where it would go next
 
-- Mergers, to go with the splitters.
-- A mixer that can be told which recipe to prefer, for when three colours arrive.
-- Selling a machine back, or picking one up and moving it.
-- Hand-authored levels with a fixed belt budget, scored like a puzzle rather than a run.
-- Belt speed per lane, so the interesting decision is where to spend the fast ones.
+- **A Lab**: a second building that takes any item and spends it on upgrades,
+  so an old line can feed it instead of being torn down.
+- **A Coater**: set to one colour, it wraps whatever passes through in a shell
+  of it, so items gain layers (a Fern core in a Ruby coat).
+- **A Sorter**, to pick one item off a mixed belt.
+- **Districts that open with goals**, turning the pastel shapes on the floor
+  into new ground with new ore veins.
+- **Chalk**, a fourth primary for light tints, and a longer goal ladder.

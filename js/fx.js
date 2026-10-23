@@ -1,6 +1,6 @@
 // Pop-up juice: toasts, floating numbers, bursts and confetti, all in a fixed
 // DOM layer above the canvas so the renderer stays a pure redraw.
-import { COLORS } from './config.js?v=5';
+import { COLORS } from './config.js?v=6';
 
 export const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
 
@@ -55,7 +55,7 @@ export function ring(x, y, color) {
   ], { duration: 560 });
 }
 
-// "+1" rising off a depot.
+// A count rising off the hub.
 export function floater(x, y, text, color = '#3f4654') {
   const el = spawn('floater', x, y, `<span>${text}</span>`);
   el.style.color = color;
@@ -67,7 +67,7 @@ export function floater(x, y, text, color = '#3f4654') {
 }
 
 // A pill sliding in at the top: new building, new recipe unlocked, warnings.
-// `icon` is a sprite id like '#i-shop', or true for a plain colour dot.
+// `icon` is a sprite id like '#i-hub', or true for a plain colour dot.
 export function toast(text, { color = '#3f4654', icon = '' } = {}) {
   const el = document.createElement('div');
   el.className = 'toast';
